@@ -16227,6 +16227,20 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual((self.fake / 'amp-started').read_text(), '1')
         self.assertFalse((self.fake / 'amp-archived').exists())
 
+    def test_a_dispatch_that_keeps_the_sidekick_reads_its_context_once(self):
+        sidekick = amp_thread(1)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+
+        def context_reads():
+            log = (self.fake / 'amp.log').read_text().splitlines()
+            return log.count(f'threads context {sidekick}')
+
+        before = context_reads()
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn('kept: the amp sidekick keeps its session', out)
+        self.assertEqual(context_reads() - before, 1)
+
     def attachments(self, thread):
         """The names of the files attached to the messages of thread, without the message number."""
         d = self.fake / 'amp-threads' / thread

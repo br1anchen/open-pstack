@@ -123,14 +123,21 @@ def write_relay(record):
     amp_routing.mirror_relay(record)
 
 
+# What one command saw of each thread's context, so the keep-or-rotate decision, the playbook delivery and the message's compaction check of one
+# dispatch share one `amp threads context` call. A send to the thread changes its context, so `deliver` drops its entry.
+CONTEXT_MEMO = {}
+
+
 def thread_context(thread):
-    """`amp threads context` of the thread as an object, None when amp cannot say."""
-    r = run(['amp', 'threads', 'context', thread])
-    try:
-        doc = json.loads(r.stdout) if r.returncode == 0 else {}
-    except ValueError:
-        return None
-    return doc if isinstance(doc, dict) else {}
+    """`amp threads context` of the thread as an object, None when amp cannot say; read once per thread until a message goes to it."""
+    if thread not in CONTEXT_MEMO:
+        r = run(['amp', 'threads', 'context', thread])
+        try:
+            doc = json.loads(r.stdout) if r.returncode == 0 else {}
+        except ValueError:
+            doc = None
+        CONTEXT_MEMO[thread] = doc if doc is None or isinstance(doc, dict) else {}
+    return CONTEXT_MEMO[thread]
 
 
 def thread_compactions(thread):
@@ -673,6 +680,8 @@ def deliver(thread, flags, title, attach, message, cwd, msg_id):
     """(thread, error text) of one message sent by the CLI: to `thread`, or, with none, to a new thread on `flags`. An upload that breaks off is
     retried (PSTACK_AMP_SEND_TRIES) unless the thread already holds the message's id."""
     tries = max(1, env_int('PSTACK_AMP_SEND_TRIES', 3))
+    # Whatever the send reaches, the thread's context is no longer what this command read.
+    CONTEXT_MEMO.pop(thread, None)
     for attempt in range(tries):
         if thread:
             # -x reads its message from the token right after it, so `-ox MESSAGE` comes last.
