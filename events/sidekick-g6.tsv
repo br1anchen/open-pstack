@@ -4,3 +4,10 @@
 2026-11-21T00:47:57Z	1795222077	sidekick	finish-verify-pass	026-dispatch-after-ready-sends-fix	b6b68a410
 2026-11-21T00:47:57Z	1795222077	sidekick	rotation-required	026-dispatch-after-ready-sends-fix	generation:6 sha256:5dc1ee6d8fc4
 2026-11-21T00:47:59Z	1795222079	sidekick	report	026-dispatch-after-ready-sends-fix	done
+2026-11-21T01:00:45Z	1795222845	sidekick	step	027-master-is-anchor	1:8b4566c8f
+2026-11-21T01:10:09Z	1795223409	sidekick	step	027-master-is-anchor	2:a445f1902
+2026-11-21T01:20:30Z	1795224030	sidekick	gate-fail	027-master-is-anchor	7e48a37f6 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/027-master-is-anchor-7e48a37f6729/out.1
+2026-11-21T01:30:45Z	1795224645	sidekick	step	027-master-is-anchor	3:a0eb1b71e
+2026-11-21T01:39:28Z	1795225168	sidekick	finish-verify-pass	027-master-is-anchor	a0eb1b71e
+2026-11-21T01:39:28Z	1795225168	sidekick	rotation-required	027-master-is-anchor	generation:6 sha256:f5baec4b08c4
+2026-11-21T01:39:30Z	1795225170	sidekick	report	027-master-is-anchor	done

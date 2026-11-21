@@ -1,0 +1,16 @@
+{
+ "code": [
+  "a0eb1b71ea08de94621e9df7936996335f3ffdf3"
+ ],
+ "generation": 6,
+ "outputs": [
+  {
+   "path": "reports/027-master-is-anchor.md",
+   "sha256": "f5baec4b08c4390d52d29e389ad3e3885ffafcccee77cee2a7c18de424c80ac1"
+  }
+ ],
+ "request": "a83085dd6aa6",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fb29-d3a6-77ce-99fe-6741609db301"
+}

@@ -1,0 +1,3 @@
+1	8b4566c8fc246e77471bb238305a3c9db72589fc	1795222845		anchor title, top-level nest rows
+2	a445f19028e038ef0f2cf6bf09fe98a2f45e25e1	1795223409		a master is never recorded nest-pending under a master
+3	a0eb1b71ea08de94621e9df7936996335f3ffdf3	1795224645		take-master moves the anchor; docs, SPEC, guard fix
