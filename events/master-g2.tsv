@@ -126,3 +126,7 @@
 2026-11-21T05:23:05Z	1795238585	master	queue	031-master-bundle-branches-fix	
 2026-11-21T05:23:05Z	1795238585	master	log	-	review-004: 004 revise: verifier clean, joo 4 medium (partial hand-over, dropped current branch, recipe moves wrong branch, full-history bundle on fetch failure) + lows; fix brief 031 after 030, ahead of 022
 2026-11-21T05:31:00Z	1795239060	master	send-verify	030-reply-deletes-no-master-state-fix	claude:025 005 030
+2026-11-21T05:31:10Z	1795239070	master	nest-pending	-	T-01a1fc96-4201-70d8-bc15-945d20a11366 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T05:31:20Z	1795239080	master	wake	030-reply-deletes-no-master-state-fix	verify:progress
+2026-11-21T05:31:20Z	1795239080	master	queue	-	cleared
+2026-11-21T05:31:26Z	1795239086	master	rotate	-	generation:11

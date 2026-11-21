@@ -27,7 +27,7 @@
     "name": "kitchen-followups-sidekick",
     "pane_id": "amp:1",
     "kind": "amp",
-    "started_at": "2026-11-21T05:02:15Z",
+    "started_at": "2026-11-21T05:31:26Z",
     "fallback": {
       "kind": "amp",
       "args": [
@@ -60,8 +60,8 @@
       "--features",
       "model:claude-sonnet-5-5"
     ],
-    "generation": 11,
-    "bootstrap_pending": false,
+    "generation": 12,
+    "bootstrap_pending": true,
     "permission_mode": "native-args",
     "closed": false,
     "rotation_required": false,
