@@ -450,20 +450,28 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   a1.medium. Never skip joo on a role orb to start faster; the review step
   needs it.
 - A run reads as one tree in the thread list, laid out around a run anchor.
-  The run's first master thread is the anchor (`pair.json` `.anchor.thread`,
-  recorded by `init`; a store from before that takes the oldest master thread
-  it started, else the current master's, the first time it needs one, and it
-  never changes after). Every role thread and every later master generation is
-  meant to be a child of the anchor, not of the previous generation, because
-  runs reach generation 14 and a chain would be that deep. Only the grouping
-  changes: orbs, models, rotation and billing stay as they are. The amp CLI
+  The anchor is the current master: a top-level thread that holds the run's
+  anchor title, with every role thread of the run (sidekick, consultant,
+  verifier) nested under it (`pair.json` `.anchor`: `thread`, `title`, and
+  `previous`, the masters that held it before). `init` records the first
+  master's thread and its title; a store from before that takes the oldest
+  master thread it started, else the current master's, the first time it needs
+  one. A master thread is never nested under another master. When a rotation
+  completes, `take-master` moves the anchor to the new master: it renames the
+  new master to the anchor title (`amp threads rename`; a failure prints a
+  `warn:` line and does not fail the take-over), records a top-level row for
+  it and a fresh row under it for each role thread the run still uses, and
+  archives the old master as before, so archiving the old master never takes
+  the live one out of the thread panel. Only the grouping changes: orbs,
+  models, rotation and billing stay as they are. The amp CLI
   cannot set a parent (`amp -x`, `amp -ox` and `amp threads new` have no parent
   option, and `amp threads export` has no parent field), so each thread the
   kitchen starts is recorded as nest-pending in `nest-pending.tsv` (and a
   `nest-pending` event), and the master nests it itself with its Amp thread
   tool: `kitchen.sh nest <store>` lists the pending threads and prints the
-  `update_thread(thread=<T>, parent_thread=<anchor>)` call to make for each,
-  and `kitchen.sh nest <store> --done <thread>...` marks them nested.
+  `update_thread(thread=<T>, parent_thread=<anchor>)` call to make for each
+  (`parent_thread=null` for a row listed as `top-level`, the new master
+  itself), and `kitchen.sh nest <store> --done <thread>...` marks them nested.
   `status` prints `nest-pending: N threads` while any is pending. Setting
   `PSTACK_NEST_VIA=<thread-id>` (optional, unset by default) makes `nest` say
   to ask that thread to set the parents instead. Under Herdr, Rex and
@@ -620,7 +628,7 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `pair.json` `.sidekick_choice` | `kitchen.sh init` | the `[[sidekick.alternate]]` entry this run starts, with its label |
 | `pair.json` `.dispatch.sidekick`, `.sidekick_models` | `kitchen.sh dispatch` | each brief's sidekick as `<kind> <model>`; `.sidekick_models` keeps it per unit |
 | `pair.json` `.sidekick_threads` | `kitchen.sh dispatch`, under Amp threads | the threads each sidekick model ran in |
-| `pair.json` `.anchor.thread` | `init`, under Amp threads | the run's first master thread, the parent of every later thread (`nest`) |
+| `pair.json` `.anchor` | `init`, `take-master`, under Amp threads | `thread`: the current master, top-level and the parent of every role thread (`nest`); `title`: the anchor title the master thread carries; `previous`: the masters that held it |
 | `nest-pending.tsv` | `kitchen.sh` starts, `kitchen.sh nest` | one row per thread waiting for its parent; a later `nested` row closes it |
 
 The git store (Amp threads, `PSTACK_STORE=git`; opt-in) adds, on the branch `kitchen/<slug>`:
