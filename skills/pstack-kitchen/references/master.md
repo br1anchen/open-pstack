@@ -317,6 +317,16 @@ place of the history:
   in play, run `kitchen.sh retro <store>` and add its rows to the comparison
   artifact's "Run log" as step 9 describes. Rows written at a rotation cover
   the run so far and say `partial` in the Run column.
+- Under Amp threads `rotate-master` also snapshots the host roster into
+  `sessions/master-g<n>-roster.toml` (a roster that does not parse or holds a
+  credential-shaped line refuses the rotation), and the next master's
+  `take-master` installs it where that orb has none. Under the git store
+  the snapshot is a local-only file the branch never holds, because the host
+  roster stays on the host: `rotate-master` prints `relay: upload_thread_file
+  path=... destination=... thread=...`; make that upload (the amp module's
+  `upload_thread_file`, through code_exec) before you end your turn, since
+  `take-master` waits for your turn to end. When it does not arrive,
+  `take-master` continues with the next orb's own roster.
 - `rotate-master` records the session it closes under `pair.json`
   `.master.sessions`, so a human can `claude --resume <id>` it.
   `KITCHEN_MASTER_REMOTE_CONTROL=0` starts the next master without Remote
