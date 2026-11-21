@@ -21035,6 +21035,8 @@ class BundleBranchApplyTests(BundleRepoCase):
             text,
         )
         self.assertNotIn(f'checkout: kept {y_here[:9]}', text)
+        self.assertEqual([line for line in lines if line.startswith('branch Y')], [])
+        self.assertEqual(text.count('diverged from m'), 1)
         self.assertIn(f'checkout -q -B Y {y_sent}', text)
         self.assertIn(f'kitchen-recovery/{y_here}', text)
         self.assertNotIn('reset --keep', text)

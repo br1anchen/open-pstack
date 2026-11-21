@@ -591,34 +591,39 @@ def diverged(root, sender, target, kept, old, new, ref):
 
 def move_checkout(root, head, branch, sender, ref):
     """Takes the sender's HEAD (kept at `ref`) into this checkout when that loses nothing: a clean tree whose commits the sender's head (or the
-    remotes) already hold. The lines saying what happened; a checkout that diverged is left as it is, with a recipe to move it by hand. A checkout on
-    a branch other than the sender's (the sender's branch, or none when the sender is detached) is never reset onto the sender's head: its own
-    commits keep it where it is, and the sender's branch gets the branch rules (a recipe of its own when it diverged here)."""
+    remotes) already hold. (the line saying what happened, the sender's branch that line already reports, or ''). A checkout that diverged is left
+    as it is, with a recipe to move it by hand. A checkout on a branch other than the sender's (the sender's branch, or none when the sender is
+    detached) is never reset onto the sender's head: its own commits keep it where it is, and the sender's branch gets the branch rules (a recipe
+    of its own when it diverged here). A line that keeps the checkout for tracked changes names no branch."""
     short = head[:9]
     local = git.out(root, 'rev-parse', 'HEAD') or ''
+    on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
     if local == head:
-        return f'checkout: at {short}, as {sender}'
+        return f'checkout: at {short}, as {sender}', on if on == branch else ''
     if local and git.ok(root, 'merge-base', '--is-ancestor', head, local):
-        return f'checkout: kept {local[:9]}, ahead of {sender} ({short})'
+        line = f'checkout: kept {local[:9]}, ahead of {sender} ({short})'
+        return line, on if on == branch else ''
     dirty = git.out(root, 'status', '--porcelain', '--untracked-files=no')
     if dirty is None or dirty:
         return (
-            f'checkout: kept {local[:9]}: tracked changes here; {sender} is at {short}'
+            f'checkout: kept {local[:9]}: tracked changes here; {sender} is at {short}',
+            on if on == branch else '',
         )
-    on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
     elsewhere = bool(on) and branch != on
     own = bool(local) and own_commits(root, local, head)
     if own and not elsewhere:
-        return diverged(root, sender, on, local, local, head, ref)
+        line = diverged(root, sender, on, local, local, head, ref)
+        return line, on if on == branch else ''
     mine = f'refs/heads/{branch}'
     if branch and has_commit(root, mine) and own_commits(root, mine, head):
         old = git.out(root, 'rev-parse', mine) or ''
-        return diverged(root, sender, branch, local, old, head, ref)
+        return diverged(root, sender, branch, local, old, head, ref), branch
     if own:
         there = f'on {branch}' if branch else 'detached'
         return (
             f'checkout: kept {local[:9]}: {on} has commits here that {sender} lacks; '
-            f'{sender} is {there} at {short} (kept as {ref})'
+            f'{sender} is {there} at {short} (kept as {ref})',
+            '',
         )
     moved = (
         git.ok(root, 'checkout', '-q', '-B', branch, head)
@@ -626,8 +631,8 @@ def move_checkout(root, head, branch, sender, ref):
         else git.ok(root, 'checkout', '-q', '--detach', head)
     )
     if not moved:
-        return f'checkout: kept {local[:9]}: git could not check out {short}'
-    return f'checkout: {branch or "detached HEAD"} at {short}, as {sender}'
+        return f'checkout: kept {local[:9]}: git could not check out {short}', ''
+    return f'checkout: {branch or "detached HEAD"} at {short}, as {sender}', branch
 
 
 def checked_out(root):
@@ -654,7 +659,7 @@ def apply_branches(root, branches, side, sender, reported=''):
     """Takes the sender's local branches ({name: full commit id}, a master's hand-over, every tip already resolved by import_git) into this
     checkout without losing anything here: an absent branch is created, one whose tip is an ancestor of the incoming tip is fast-forwarded, and
     every other (ahead, diverged, or checked out in a worktree, which a ref update would leave with stale files) is kept and named with the
-    incoming tip, which stays reachable under `side`. The branch `reported` (the sender's, when move_checkout has put this checkout on it) has
+    incoming tip, which stays reachable under `side`. The branch `reported` (the sender's, when move_checkout's line already names its state) has
     its line from move_checkout and gets none here. Lines saying what happened."""
     held, lines = checked_out(root), []
     for name, oid in sorted(branches.items()):
@@ -823,12 +828,10 @@ def move_git(manifest, sender, keep):
     ref = f'refs/pstack/in/{side}/head'
     git.ok(root, 'update-ref', ref, head)
     current = info.get('branch') or ''
-    lines = [move_checkout(root, head, current, sender, ref)]
+    line, reported = move_checkout(root, head, current, sender, ref)
+    lines = [line]
     if isinstance(info.get('branches'), dict):
-        here = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
-        lines += apply_branches(
-            root, info['branches'], side, sender, current if current == here else ''
-        )
+        lines += apply_branches(root, info['branches'], side, sender, reported)
     lines += keep_evidence(root, evidence_of(root, info))
     for tree in info.get('worktrees') or []:
         path, commit = tree.get('path') or '', tree.get('commit') or ''
