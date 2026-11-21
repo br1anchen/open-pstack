@@ -21,6 +21,7 @@ import shlex
 import shutil
 import tarfile
 import tempfile
+import time
 import uuid
 from typing import NamedTuple
 
@@ -35,6 +36,7 @@ LINK = b'symlink:'
 OUT = 'refs/pstack/out'
 MISSING = object()
 FETCH_TIMEOUT_ENV = 'PSTACK_BUNDLE_FETCH_TIMEOUT_S'
+KEEP_ENV = 'PSTACK_BUNDLE_KEEP'
 # The one pair.json fact a role sets under the local store (commands/report.py record_rotation_required), and the append logs every role writes.
 SIDEKICK_FACT = 'rotation_required'
 SHARED_LOGS = ('events.tsv', 'gates.tsv')
@@ -204,7 +206,7 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     trees = worktrees(store) if root else []
     manifest = {
         'version': 1,
-        'id': uuid.uuid4().hex,
+        'id': f'{time.time_ns():020d}-{uuid.uuid4().hex[:12]}',
         'from': sender.get('thread', ''),
         'from_name': sender.get('name', ''),
         'to': to,
@@ -671,6 +673,26 @@ def side_of(manifest):
     )
 
 
+def prune_sets(root, side):
+    """Deletes the ref sets (refs/pstack/in/<sender>/<bundle id>/...) of the sender's older bundles, keeping PSTACK_BUNDLE_KEEP (8) sets in all: the
+    one just applied (`side`, whose refs the lines of this apply name) and the newest others. A bundle id starts with its sender's clock, so the
+    newest sort last."""
+    sender, current = side.split('/')
+    prefix = f'refs/pstack/in/{sender}/'
+    sets = {}
+    for ref in (
+        git.out(root, 'for-each-ref', '--format=%(refname)', prefix) or ''
+    ).splitlines():
+        sets.setdefault(ref[len(prefix) :].split('/', 1)[0], []).append(ref)
+    newest = sorted(sets.keys() - {current}, reverse=True)[
+        : max(env_int(KEEP_ENV, 8) - 1, 0)
+    ]
+    for bundle_id, refs in sets.items():
+        if bundle_id != current and bundle_id not in newest:
+            for ref in refs:
+                git.ok(root, 'update-ref', '-d', ref)
+
+
 def import_git(manifest, gitdata):
     """The first half of taking a bundle's commits: brings them over and moves nothing (no branch, no checkout, no store file), so a hand-over
     that cannot be taken whole changes nothing. (ready, lines): ready says whether move_git has something to move. A hand-over (git.branches)
@@ -742,6 +764,7 @@ def move_git(manifest, sender):
             lines.append(f'worktree: {path} at {commit[:9]}')
         else:
             lines.append(f'worktree: {path}: {commit[:9]} could not be checked out')
+    prune_sets(root, side)
     return lines
 
 

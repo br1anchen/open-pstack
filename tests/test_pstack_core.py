@@ -21087,6 +21087,33 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertEqual(fetch['timeout'], 7)
         self.assertEqual(fetch['env']['GIT_TERMINAL_PROMPT'], '0')
 
+    def test_older_ref_sets_of_one_sender_are_pruned_to_the_newest_few_and_the_applied_one_stays(
+        self,
+    ):
+        bundles, ids = [], []
+        for n in range(5):
+            self.commit(f'work-{n}')
+            path = Path(self.tmp.name) / f'bundle-{n}.tgz'
+            manifest = self.bundle.pack(
+                str(self.store),
+                str(path),
+                {'name': 'm', 'thread': 'T-m'},
+                {'name': 'm2', 'pane': 'amp:2'},
+                {},
+            )
+            bundles.append(path)
+            ids.append(manifest['id'])
+        self.assertEqual(ids, sorted(ids))
+        with mock.patch.dict(os.environ, {'PSTACK_BUNDLE_KEEP': '3'}):
+            for n in (1, 2, 3, 4, 0):
+                self.bundle.apply(str(bundles[n]))
+        refs = self.git(
+            'for-each-ref', '--format=%(refname)', 'refs/pstack/in/T-m/'
+        ).splitlines()
+        # The oldest bundle was applied last, so it stays with the two newest; the sets in between are gone.
+        self.assertEqual({ref.split('/')[4] for ref in refs}, {ids[0], ids[3], ids[4]})
+        self.assertIn(f'refs/pstack/in/T-m/{ids[0]}/head', refs)
+
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
     """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how
