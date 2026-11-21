@@ -1,0 +1,16 @@
+{
+ "code": [
+  "7218f3112db91d4448b20d708b5c92117b6543db"
+ ],
+ "generation": 9,
+ "outputs": [
+  {
+   "path": "reports/000-ready-g9.md",
+   "sha256": "7bb64a298c064da9507558c263088d73c744da8474a7af5ed27b63507701d463"
+  }
+ ],
+ "request": "007268831000",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97"
+}
