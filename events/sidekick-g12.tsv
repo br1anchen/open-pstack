@@ -35,3 +35,6 @@
 2026-11-21T08:49:06Z	1795250946	sidekick	step	024-verify-names-excluded-fix	1:ce815fa07
 2026-11-21T08:49:12Z	1795250952	sidekick	progress	024-verify-names-excluded-fix	
 2026-11-21T08:49:30Z	1795250970	sidekick	step	024-verify-names-excluded-fix	2:1e105784a
+2026-11-21T08:52:16Z	1795251136	sidekick	finish-verify-pass	024-verify-names-excluded-fix	1e105784a
+2026-11-21T08:52:16Z	1795251136	sidekick	rotation-required	024-verify-names-excluded-fix	generation:12 sha256:13e7b01b7c05
+2026-11-21T08:52:18Z	1795251138	sidekick	report	024-verify-names-excluded-fix	done
