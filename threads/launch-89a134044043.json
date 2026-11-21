@@ -1,0 +1,26 @@
+{
+ "args": [
+  "--mode",
+  "claude-code",
+  "--features",
+  "model:claude-sonnet-5-5"
+ ],
+ "generation": 11,
+ "kind": "amp",
+ "name": "kitchen-followups-sidekick",
+ "pane": "amp:1",
+ "relays": [],
+ "requests": [
+  {
+   "at": 1795237338,
+   "hash": "451966ca6d8879b9fd9369fbd2971c552a422a7c8c1e089b9df159ac6e822ff4",
+   "id": "89a134044043",
+   "seq": 44,
+   "state": "pending"
+  }
+ ],
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "state": "started",
+ "thread": ""
+}
