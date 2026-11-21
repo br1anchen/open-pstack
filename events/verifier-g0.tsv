@@ -19,3 +19,4 @@
 2026-11-21T09:21:02Z	1795252862	verifier	report	024-verify-names-excluded-fix-v1	clean
 2026-11-21T10:13:56Z	1795256036	verifier	report	006-land-check-gone-head-v1	clean
 2026-11-21T10:43:09Z	1795257789	verifier	report	033-master-bundle-branches-fix-v1	clean
+2026-11-21T12:22:24Z	1795263744	verifier	report	034-land-check-gone-head-fix-v1	reject
