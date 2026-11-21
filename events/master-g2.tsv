@@ -165,3 +165,7 @@
 2026-11-21T07:46:02Z	1795247162	master	wake	022-migrated-threads-archive-nest	verify:progress
 2026-11-21T07:46:03Z	1795247163	master	queue	-	cleared
 2026-11-21T07:46:11Z	1795247171	master	reuse	032-master-bundle-branches-fix2	sidekick: pstack, pstack-docs, context 31%
+2026-11-21T07:46:18Z	1795247178	master	queue	024-verify-names-excluded-fix	
+2026-11-21T07:46:26Z	1795247186	master	nest	-	T-01a1fd11-a036-76c8-bd1d-aa7c3b06df12 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T07:46:34Z	1795247194	master	queue	-	cleared
+2026-11-21T07:46:39Z	1795247199	master	send-brief	032-master-bundle-branches-fix2	
