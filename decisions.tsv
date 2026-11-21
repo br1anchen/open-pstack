@@ -76,3 +76,4 @@ ts	phase	decision	why	evidence	result
 2026-11-21T08:04:02Z	archive	archive verifier T-01a1fd11-a036-76c8-bd1d-aa7c3b06df12	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd11-a036-76c8-bd1d-aa7c3b06df12	archived
 2026-11-21T08:04:16Z	review-022	022 accepted: verifier clean; joo 4 lows to followups; rotate advice ignored per standing order 20	verdict 022-v1; joo 9dfb1ae5	reviews/022	032 in progress, 024 queued
 2026-11-21T08:24:31Z	merge	PR #13 (027+029) merged to main by rebase at b681abc on Brian's explicit approval	owner message: Merge #13 then continue	https://github.com/br1anchen/open-pstack/pull/13	the run's landing must rebase onto b681abc
+2026-11-21T09:10:55Z	archive	archive verifier T-01a1fd3f-ebac-7608-bdc5-8f869be75612	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd3f-ebac-7608-bdc5-8f869be75612	archived
