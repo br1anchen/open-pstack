@@ -1,0 +1,2 @@
+1	ce815fa076de26beb63c3ecd9d43e2da3556f47e	1795250946		verify --covers says which unit in the range it leaves out and how to include it
+2	1e105784ab1a2ffb8dd8f14b0c9974332fd9dbcb	1795250970		document the excluded line of verify --covers

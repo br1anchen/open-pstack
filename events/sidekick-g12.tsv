@@ -31,3 +31,7 @@
 2026-11-21T08:35:47Z	1795250147	sidekick	finish-verify-pass	032-master-bundle-branches-fix2	08666a798
 2026-11-21T08:35:47Z	1795250147	sidekick	rotation-required	032-master-bundle-branches-fix2	generation:12 sha256:0d1b5fe833e7
 2026-11-21T08:35:50Z	1795250150	sidekick	report	032-master-bundle-branches-fix2	done
+2026-11-21T08:39:09Z	1795250349	sidekick	progress	024-verify-names-excluded-fix	
+2026-11-21T08:49:06Z	1795250946	sidekick	step	024-verify-names-excluded-fix	1:ce815fa07
+2026-11-21T08:49:12Z	1795250952	sidekick	progress	024-verify-names-excluded-fix	
+2026-11-21T08:49:30Z	1795250970	sidekick	step	024-verify-names-excluded-fix	2:1e105784a
