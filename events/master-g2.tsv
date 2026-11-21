@@ -1,3 +1,6 @@
 2026-11-21T00:12:59Z	1795219979	master	nest-pending	-	T-01a1fb72-f256-7439-9c4a-d630b435d90d under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
 2026-11-21T00:13:05Z	1795219985	master	handoff	-	generation:1
 2026-11-21T00:13:05Z	1795219985	master	spawn	-	amp:generation:2
+2026-11-21T00:20:06Z	1795220406	master	archive	-	master:T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-21T00:20:06Z	1795220406	master	log	-	archive: archive master T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-21T00:20:06Z	1795220406	master	takeover	-	generation:2
