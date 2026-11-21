@@ -279,16 +279,20 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   key by key; `.tsv` files take the union of their lines), fetches the
   commits, moves a clean checkout to the sender's HEAD when that loses no
   commit, and adds the scratch worktrees. Files over 1 MiB, locks and pid
-  files stay home. A role's reply to the master never changes what the master
-  owns, since it is merged against the bundle the master sent that role last,
-  which can be newer than the snapshot the role worked from: the master's
+  files stay home. A role's reply to the master changes only the files its own role owns,
+  since it is merged against the bundle the master sent that role last, which
+  can be newer than the snapshot the role worked from: the master's
   `pair.json` is kept whole, except that the current sidekick's completion
   (`sidekick.rotation_required` true, with the same sidekick generation, brief
-  and dispatch generation on both sides) is taken; the master's other files
-  (`standing-orders.md`, `briefs/`, `decisions.tsv`, `sessions/` and the rest of
-  the master's paths in `RULES`) stay as they are, and the sync line names each
-  one it kept; only the shared append logs `events.tsv` and `gates.tsv` take
-  the union of their lines, and a reply that lacks one deletes nothing. A
+  and dispatch generation on both sides) is taken; every other file the sender's
+  role does not own in `RULES` (the master's `standing-orders.md`, `briefs/`,
+  `decisions.tsv`, `sessions/`, another role's report, step log or verdict, and
+  the master's `.seen` markers in `progress/`) keeps this side's copy, with no
+  update, no rollback and no deletion by omission; a file this side lacks is
+  added (a master-owned one is not), and a sender the registry does not name
+  owns nothing, so it only adds. The sync line names each master file it kept;
+  only the shared append logs `events.tsv` and `gates.tsv` take the union of
+  their lines, and a reply that lacks one deletes nothing. A
   bundle from the master, or from the master it took over from, is merged as
   before.
 - A role gets its setup once. Its first message (the bootstrap at spawn or
@@ -434,10 +438,12 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
     session for this routine unit (<profiles>, context N%)`. It rotates when
     the next unit is escalated, its profiles differ, or the thread has used
     `PAIR_REUSE_CONTEXT_PCT` (50) percent of its context window or compacted
-    (`amp threads context`). Every rotation says why before it starts,
+    (`amp threads context`, read once per decision). Every rotation, a manual
+    one included, says why before it starts,
     `rotate: <reason>` (`previous brief missing`, `risk <prev>/<next>`,
     `profiles <a> vs <b>`, `context unreadable`, `context N% >= 50%`,
-    `compacted`, `failed over`, or `plan`), and the `rotate` event's detail
+    `compacted`, `failed over`, `plan`, or `manual` for `kitchen.sh rotate`
+    itself), and the `rotate` event's detail
     carries it (`generation:N reason:<reason>`); Herdr and Rex rotate every
     time and print nothing. A new sidekick generation starts with
     `rotation_required` cleared, so the next dispatch is sent once its READY is
