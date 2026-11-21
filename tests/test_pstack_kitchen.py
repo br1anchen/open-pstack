@@ -16029,6 +16029,36 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(recorded['T-bare']['role'], 'master')
         self.assertFalse((bare / 'nest-pending.tsv').exists())
 
+    def test_take_master_nests_a_live_consultant_under_the_new_master(self):
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        consultant = amp_thread(2)
+        self.assertIn(
+            (consultant, 'consultant', AMP_MASTER, 'pending'), self.nest_rows()
+        )
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(3)
+        self.set_state(AMP_MASTER, 'idle')
+        self.as_thread(master2, 'take-master', str(self.store))
+        listed = self.run_sh('nest', str(self.store)).splitlines()
+        self.assertIn(
+            f'nest-pending: {consultant} (consultant) under {master2}', listed
+        )
+        self.assertIn(
+            f'nest-pending: {amp_thread(1)} (sidekick) under {master2}', listed
+        )
+
+    def test_a_second_take_master_adds_no_nest_rows_and_leaves_the_anchor(self):
+        _, master2 = self.take_master_after_rotation()
+        rows, anchor = self.nest_rows(), self.state()['anchor']
+        out = self.as_thread(master2, 'take-master', str(self.store))
+        self.assertIn('no hand-over open', out)
+        self.assertEqual(self.nest_rows(), rows)
+        self.assertEqual(self.state()['anchor'], anchor)
+
     def test_take_master_whose_rename_fails_warns_and_still_takes_over(self):
         (self.fake / 'amp-rename-fail').write_text('')
         out, master2 = self.take_master_after_rotation()
