@@ -71,7 +71,8 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "031-master-bundle-branches-fix",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/031-master-bundle-branches-fix.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -280,6 +281,7 @@
       "--base",
       "6a83f50"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-031-master-bundle-branches-fix-verify/T-01a1fcea-2d0f-7099-89ef-9831dafddd9a.jsonl"
   }
 }
