@@ -1,0 +1,4 @@
+1	c3bce56dbf00c765d70cc0cbd959c664d3d5ccd5	1795259316		an ordinary send carries only its run's evidence and does not fetch origin
+2	6598293c7685e9f0da3a666bea0c5446c3b2ec0f	1795260004		an ordinary message with a missing evidence commit syncs the store and names the ref; hand-overs stay strict
+3	868a009312d536290645013a5d493538f8c878df	1795260910		land-check blames and credits only what could cover the unit
+4	70ed949c28672d61c83073bc0f16d2878ebe4e18	1795261617		a failed pin warns; gates-mode verification pins its range; dead NoBrief skip dropped
