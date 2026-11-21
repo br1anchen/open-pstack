@@ -1,0 +1,2 @@
+1	8552a58badd5685f6210d2ba1ed12e241920f11a	1795255061		move_checkout returns the branch its line reports; a diverged-elsewhere sender branch is reported once
+2	179a1958332a8e60958e9439ff69d899266f4694	1795255741		a tracked-changes checkout line is not a report of the sender's branch
