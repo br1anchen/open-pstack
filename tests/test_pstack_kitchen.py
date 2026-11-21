@@ -8811,7 +8811,8 @@ esac
             '# Review 002\n\nverdict: accept\n\n## Amendments\n\n'
             'KNOWN_DEAD grew by two names: accepted.\n\n## Checked\n\nread it\n'
         )
-        self.run_sh('verify', str(self.store), '003', '--covers', '001')
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001')
+        self.assertNotIn('excluded:', out)
         packet, context = self.covers_packet()
         self.assertEqual(
             context.strip('\n').split('\n'),
@@ -8864,10 +8865,15 @@ esac
         (self.store / 'reviews/002-u2.md').write_text(
             'verdict: revise\n\n## Amendments\n\nnot taken\n'
         )
-        self.run_sh('verify', str(self.store), '003', '--covers', '001')
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001')
         lines = self.covers_packet()[1].split('\n')
-        self.assertIn('unit 002-u2: no accepted review', lines)
+        remedy = 'name it with --covers, or verify --landing covers it'
+        self.assertIn(f'unit 002-u2: no accepted review; {remedy}', lines)
         self.assertNotIn('not taken', lines)
+        self.assertEqual(
+            [line for line in out.splitlines() if line.startswith('excluded:')],
+            [f'excluded: unit 002 (in the range, no accepted review); {remedy}'],
+        )
 
     def test_a_packet_without_covers_has_no_units_between_context(self):
         self.three_units()
