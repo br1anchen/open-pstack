@@ -337,6 +337,19 @@ def owned_by(rel, role):
     )
 
 
+def copy_owner(rel):
+    """Whose copy a reply left in place at rel: 'the master' for a master-owned path or a `.seen` marker, else the roles gitstore.RULES gives it
+    ('sidekick/verifier'), or 'this side' for a path no rule names."""
+    from . import gitstore
+
+    rule = gitstore.classify(rel)
+    if is_master_owned(rel) or rel.endswith('.seen'):
+        return 'the master'
+    if rule is not None and rule.kind == gitstore.ROLE:
+        return '/'.join(sorted(rule.roles))
+    return 'this side'
+
+
 def completion(local, incoming):
     """Whether the incoming pair.json holds the current sidekick's completion: rotation_required true, with the sidekick's generation, the
     dispatched brief and the dispatch's generation present and equal on both sides."""
@@ -470,8 +483,12 @@ def merge_store(store, files, listed, base_files, reply=None):
     line = f'store: {changed} updated, {removed} removed'
     if conflicts:
         line += f'; conflicts, took theirs: {", ".join(conflicts)}'
-    if refused:
-        line += f"; kept the master's copy of: {', '.join(refused)}"
+    kept = {}
+    for rel in refused:
+        kept.setdefault(copy_owner(rel), []).append(rel)
+    for owner, paths in kept.items():
+        whose = "the master's" if owner == 'the master' else f"{owner}'s"
+        line += f'; kept {whose} copy of: {", ".join(paths)}'
     if completed:
         line += "; took the sidekick's completion"
     return [line]

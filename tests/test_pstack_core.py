@@ -21202,7 +21202,11 @@ class RoleReplyMergeTests(unittest.TestCase):
             (self.store / 'progress/001-a.md').unlink()
             self.write('verdicts/001-a-v1.md', 'status: clean\n')
 
-        self.deliver(self.reply(edit, sender='vf', thread='T-vf'), base)
+        lines = self.deliver(self.reply(edit, sender='vf', thread='T-vf'), base)
+        self.assertEqual(
+            lines,
+            ["store: 1 updated, 0 removed; kept sidekick's copy of: reports/001-a.md"],
+        )
         self.assertEqual(self.read('reports/001-a.md'), 'old report\n')
         self.assertEqual(self.read('steps/001-a.tsv'), '1\tabc\tstep\n')
         self.assertEqual(self.read('progress/001-a.md'), 'line\n')
