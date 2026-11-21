@@ -14,3 +14,13 @@
 2026-11-21T00:48:29Z	1795222109	master	reuse	027-master-is-anchor	sidekick: pstack, pstack-docs, context 13%
 2026-11-21T00:48:35Z	1795222115	master	send-brief	027-master-is-anchor	
 2026-11-21T00:49:08Z	1795222148	master	send-verify	026-dispatch-after-ready-sends-fix	amp:023 026
+2026-11-21T00:49:17Z	1795222157	master	nest-pending	-	T-01a1fb94-3319-7096-b033-79ee62e53ea4 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T00:49:25Z	1795222165	master	wake	026-dispatch-after-ready-sends-fix	verify:progress
+2026-11-21T00:49:36Z	1795222176	master	nest	-	T-01a1fb94-3319-7096-b033-79ee62e53ea4 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T01:05:18Z	1795223118	master	archive	-	verifier:T-01a1fb94-3319-7096-b033-79ee62e53ea4
+2026-11-21T01:05:18Z	1795223118	master	log	-	archive: archive verifier T-01a1fb94-3319-7096-b033-79ee62e53ea4
+2026-11-21T01:05:18Z	1795223118	master	verify	026-dispatch-after-ready-sends-fix	reject
+2026-11-21T01:05:18Z	1795223118	master	wake	026-dispatch-after-ready-sends-fix	verify:reject
+2026-11-21T01:06:11Z	1795223171	master	queue	028-dispatch-after-ready-sends-fix	
+2026-11-21T01:06:24Z	1795223184	master	log	-	review-026: 026 revise: only finding is a pre-existing 17-24 s test vs my 15 s Acceptance; fix brief 028 splits it; joo clean
+2026-11-21T01:39:59Z	1795225199	master	rotate	-	generation:6
