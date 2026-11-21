@@ -828,10 +828,17 @@ def import_git(manifest, gitdata):
 
 def unkept_evidence(root, keeps):
     """One line naming the evidence refs of an ordinary message whose commit is missing here once origin has been fetched (once), none when all
-    are here: keep_evidence leaves them out and the sync goes on."""
+    are here: keep_evidence leaves them out and the sync goes on. The fetch is bounded and prompts for nothing, as origin_baseline's is."""
     gone = [name for name, oid in sorted(keeps.items()) if not has_commit(root, oid)]
     if gone:
-        git.ok(root, 'fetch', '-q', 'origin')
+        git.ok(
+            root,
+            'fetch',
+            '-q',
+            'origin',
+            timeout=env_int(FETCH_TIMEOUT_ENV, 30) or None,
+            env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
+        )
         gone = [name for name in gone if not has_commit(root, keeps[name])]
     if not gone:
         return []
