@@ -15,3 +15,5 @@
 - 022 (joo, low): before_migration treats a retirement time `at` as a start time; filter archived threads after merging pair.json and registry names; share one run-thread-set helper with Amp.thread_rows; route nest --discover through mux.get(); nest --discover does not mark threads nested.
 
 - 032 (verifier/joo): prune_sets' "a set a line names stays" guard protects nothing reachable today (lines name only the set being applied); git.run's **extra with a hand-written TypeError could be named keyword parameters if the size guard allows; prune_sets' printed/keep parameters could be required; a 0 fetch timeout took two waits against a slow origin (untraced).
+
+- 024 (joo, low): print the excluded notice only for a covers packet, not a landing packet, and reuse the units_between result instead of recomputing it.

@@ -193,3 +193,13 @@
 2026-11-21T09:10:55Z	1795252255	master	wake	032-master-bundle-branches-fix2	verify:reject
 2026-11-21T09:11:11Z	1795252271	master	queue	033-master-bundle-branches-fix	
 2026-11-21T09:11:32Z	1795252292	master	send-verify	024-verify-names-excluded-fix	amp:024
+2026-11-21T09:11:42Z	1795252302	master	nest-pending	-	T-01a1fd60-28b5-7761-814a-62effefad503 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T09:11:49Z	1795252309	master	wake	024-verify-names-excluded-fix	verify:progress
+2026-11-21T09:11:57Z	1795252317	master	nest	-	T-01a1fd60-28b5-7761-814a-62effefad503 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T09:11:57Z	1795252317	master	log	-	review-032: 032 revise: one low finding (diverged Y reported twice when checkout is on X) + joo dirty-tree low; fix 033 after 006; 024 verifying alone
+2026-11-21T09:21:37Z	1795252897	master	archive	-	verifier:T-01a1fd60-28b5-7761-814a-62effefad503
+2026-11-21T09:21:37Z	1795252897	master	log	-	archive: archive verifier T-01a1fd60-28b5-7761-814a-62effefad503
+2026-11-21T09:21:37Z	1795252897	master	verify	024-verify-names-excluded-fix	clean
+2026-11-21T09:21:37Z	1795252897	master	wake	024-verify-names-excluded-fix	verify:clean
+2026-11-21T09:21:47Z	1795252907	master	log	-	review-024: 024 accepted: verifier clean; joo 2 lows (notice on landing packets) to followups
+2026-11-21T09:43:05Z	1795254185	master	send-verify	006-land-check-gone-head	amp:006
