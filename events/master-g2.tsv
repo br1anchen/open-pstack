@@ -286,3 +286,6 @@
 2026-11-21T13:25:18Z	1795267518	master	wake	-	verify:clean
 2026-11-21T13:25:53Z	1795267553	master	log	-	land: pushed be88296 to main (ff from b681abc): units 001,002,003,017,018,019,020 rebased; landing-v1 clean, suite 1948/0, land-check pass; reply to Puck sent
 2026-11-21T13:43:12Z	1795268592	master	send-verify	036-land-check-gone-head-fix	claude:034 006 035 036
+2026-11-21T13:43:21Z	1795268601	master	nest-pending	-	T-01a1fe58-e0f7-72a4-a291-463e9eeb0771 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T13:43:32Z	1795268612	master	wake	036-land-check-gone-head-fix	verify:progress
+2026-11-21T13:43:35Z	1795268615	master	rotate	-	generation:15
