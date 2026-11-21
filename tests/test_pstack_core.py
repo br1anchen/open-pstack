@@ -20835,7 +20835,10 @@ class BundleBranchApplyTests(unittest.TestCase):
         self.prune()
         self.assertFalse(
             subprocess.run(
-                ['git', 'cat-file', '-e', sent['feat/new']], cwd=self.repo, check=False
+                ['git', 'cat-file', '-e', sent['feat/new']],
+                cwd=self.repo,
+                check=False,
+                timeout=60,
             ).returncode
             == 0
         )
@@ -20876,6 +20879,7 @@ class BundleBranchApplyTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip(),
             self.base,
         )
@@ -20918,6 +20922,7 @@ class BundleBranchApplyTests(unittest.TestCase):
                 cwd=self.repo,
                 check=False,
                 capture_output=True,
+                timeout=60,
             ).returncode
             == 0
         )
