@@ -20808,6 +20808,19 @@ class BundleRepoCase(unittest.TestCase):
         self.git('reflog', 'expire', '--expire=now', '--all')
         self.git('gc', '-q', '--prune=now')
 
+    def with_manifest(self, bundle, manifest):
+        """Rewrites the bundle at `bundle` with `manifest` in place of its own."""
+        with tarfile.open(bundle, 'r:gz') as src:
+            kept = [
+                (m, self.bundle.member_bytes(src, m) if m.isfile() else b'')
+                for m in src.getmembers()
+                if m.name != 'manifest.json'
+            ]
+        with tarfile.open(bundle, 'w:gz') as dst:
+            self.bundle.add_bytes(dst, 'manifest.json', json.dumps(manifest).encode())
+            for member, data in kept:
+                dst.addfile(member, io.BytesIO(data) if member.isfile() else None)
+
 
 class BundleBranchApplyTests(BundleRepoCase):
     """A master's hand-over carries every local branch; the receiver creates or fast-forwards them and keeps whatever it cannot move without
@@ -20898,13 +20911,13 @@ class BundleBranchApplyTests(BundleRepoCase):
         self,
     ):
         bundle = self.pack_and_prune()
-        manifest, files, gitdata = self.bundle.read_bundle(str(bundle))
+        manifest = self.bundle.read_bundle(str(bundle))[0]
         manifest['git']['branches'] = {'@{-1}': self.base, 'ok/name': self.base}
-        info = manifest['git']
-        lines = self.bundle.apply_git(manifest, gitdata, 'm')
+        self.with_manifest(bundle, manifest)
+        _, lines = self.bundle.apply(str(bundle))
         self.assertIn('branch @{-1}: not a valid branch name or commit; skipped', lines)
         self.assertEqual(self.git('rev-parse', 'refs/heads/ok/name'), self.base)
-        self.assertEqual(info['head'], self.git('rev-parse', 'HEAD'))
+        self.assertEqual(manifest['git']['head'], self.git('rev-parse', 'HEAD'))
 
     def test_a_hand_over_bundle_whose_commits_cannot_be_imported_raises_instead_of_reporting_a_partial_transfer(
         self,
@@ -20931,6 +20944,32 @@ class BundleBranchApplyTests(BundleRepoCase):
             ).returncode
             == 0
         )
+
+    def test_a_hand_over_with_one_missing_branch_tip_changes_no_ref_no_checkout_and_no_store_file(
+        self,
+    ):
+        self.branch_at('feat/a', self.base, 'a')
+        head = self.commit('ahead')
+        (self.store / 'reports').mkdir()
+        (self.store / 'reports' / '001-new.md').write_text('from the sender\n')
+        bundle = self.pack_and_prune()
+        manifest = self.bundle.read_bundle(str(bundle))[0]
+        manifest['git']['branches']['zzz/missing'] = 'f' * 40
+        self.with_manifest(bundle, manifest)
+        # The receiver is a commit behind, lacks feat/a and the report, and holds nothing the bundle carries.
+        self.git('reset', '-q', '--hard', self.base)
+        self.git('branch', '-D', 'feat/a')
+        (self.store / 'reports' / '001-new.md').unlink()
+        self.prune()
+        before = self.refs()
+        with self.assertRaisesRegex(
+            ValueError, 'branch zzz/missing: fffffffff was not carried'
+        ):
+            self.bundle.apply(str(bundle))
+        self.assertEqual(self.refs(), before)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
+        self.assertNotEqual(head, self.base)
+        self.assertFalse((self.store / 'reports' / '001-new.md').exists())
 
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
