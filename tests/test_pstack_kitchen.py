@@ -14790,6 +14790,35 @@ class AmpKitchenTests(KitchenScriptTests):
             ],
         )
 
+    def test_every_command_that_starts_a_thread_prints_its_nest_instructions(self):
+        """A start prints the nest-pending line of the thread it started and the update_thread call, so the master nests it without `status`."""
+        outs = {1: self.spawn_out}
+        outs[2] = self.verify_started('001')
+        outs[3] = self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.edit_pair(sidekick={**self.state()['sidekick'], 'rotation_required': True})
+        (self.store / 'briefs/001-util.md').unlink()
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        outs[4] = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn('rotate: previous brief missing\n', outs[4])
+        for n, role in (
+            (1, 'sidekick'),
+            (2, 'verifier'),
+            (3, 'consultant'),
+            (4, 'sidekick'),
+        ):
+            with self.subTest(thread=n, role=role):
+                lines = outs[n].splitlines()
+                row = f'nest-pending: {amp_thread(n)} ({role}) under {AMP_MASTER}'
+                call = (
+                    'nest: call update_thread(thread=<T>, parent_thread=<anchor>) for each, '
+                    f'then kitchen.sh nest {self.store} --done <thread>...'
+                )
+                self.assertIn(row, lines)
+                self.assertIn(call, lines[lines.index(row) :])
+
     def rotate_on_record(self, *sessions, pane_id):
         """A run whose master rotated: `sessions` are the closed generations' threads, oldest first, and `pane_id` the current master's."""
         doc = self.state()
@@ -16881,7 +16910,7 @@ class AmpKitchenTests(KitchenScriptTests):
             text=True,
             check=True,
             timeout=60,
-        ).stdout.strip()
+        ).stdout.splitlines()[-1]
 
     # Two orbs on one machine: each role's store is a directory of its own that is swapped in for self.store while that role runs, with a
     # state home (the registry and the last bundle sent to each peer) of its own too.
