@@ -18571,8 +18571,17 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
         self.ready_path().unlink()
         self.filled_handoff()
-        self.run_sh('rotate-master', str(self.store))
+        out = self.run_sh('rotate-master', str(self.store))
         snapshot = 'sessions/master-g2-roster.toml'
+        # The upload goes to a path relative to the next master's repository, whatever this orb's store path is.
+        self.assertIn(
+            f'relay: upload_thread_file path={self.store}/{snapshot} destination=.git/pstack-roster-g2.toml thread={amp_thread(2)}\n',
+            out,
+        )
+        self.assertIn(
+            'take-master on the next master waits at most 30 s for your turn to end',
+            out,
+        )
         self.assertEqual(self.roster_snapshot().read_text(), self.ROSTER)
         self.assertIn('sessions/master-1-handoff.md', self.branch_tree())
         self.assertNotIn(snapshot, self.branch_tree())
@@ -18583,7 +18592,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
             '',
         )
         self.assertIn(
-            'sessions/*-roster.toml',
+            'sessions/master-g*-roster.toml',
             self.remote_git('show', 'kitchen/demo:.gitignore').split(),
         )
 
@@ -19829,6 +19838,46 @@ class AmpGitKitchenTests(AmpKitchenTests):
             '  esac\ndone\n'
         )
         hook.chmod(0o755)
+
+    def test_take_master_under_the_git_store_installs_a_roster_uploaded_to_the_repos_git_dir(
+        self,
+    ):
+        """The old master's upload lands at .git/pstack-roster-g<n>.toml of the next master's repository, not at the old store's path: it is moved
+        to the snapshot's place, installed, and the upload is gone; with nothing at either place take-master says it did not arrive."""
+        sender = Path(self.tmp.name) / 'host-roster.toml'
+        sender.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(sender)
+        self.ready_path().unlink()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        snapshot = self.roster_snapshot()
+        kept = snapshot.read_bytes()
+        uploaded = self.repo / '.git/pstack-roster-g2.toml'
+        mine = Path(self.tmp.name) / 'orb2-roster.toml'
+        handed = (self.store / 'pair.json').read_text()
+        snapshot.unlink()
+        uploaded.write_bytes(kept)
+        out = self.as_thread(
+            amp_thread(2),
+            'take-master',
+            str(self.store),
+            env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+        )
+        self.assertIn(f'roster: installed {mine} from {snapshot}', out)
+        self.assertEqual(mine.read_bytes(), kept)
+        self.assertFalse(uploaded.exists())
+        self.assertEqual(snapshot.read_bytes(), kept)
+        mine.unlink()
+        snapshot.unlink()
+        (self.store / 'pair.json').write_text(handed)
+        out = self.as_thread(
+            amp_thread(2),
+            'take-master',
+            str(self.store),
+            env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+        )
+        self.assertIn('did not arrive from the previous master', out)
+        self.assertFalse(mine.exists())
 
     def test_a_publish_that_fails_after_the_snapshot_leaves_no_snapshot_behind(self):
         roster = Path(self.tmp.name) / 'host-roster.toml'

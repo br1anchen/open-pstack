@@ -1,5 +1,6 @@
 """close, rotate-master and take-master: the end of a run, and the hand-over between master generations. Ported from kitchen.sh at 9f0f6e5."""
 
+import errno
 import os
 import re
 import shlex
@@ -9,7 +10,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from pstack_core import gitstore, mux, procinfo, secrets
+from pstack_core import bundle, gitstore, mux, procinfo, secrets
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
@@ -531,14 +532,46 @@ def drop_snapshot(store, roster):
         Path(f'{store}/{roster}').unlink(missing_ok=True)
 
 
+def relay_name(roster):
+    """The repo-relative file the old master uploads the snapshot to on the next master's orb, whose store sits at a path of its own:
+    .git/pstack-roster-g<n>.toml, beside the .git/pstack-relay-<id>.tgz of a steer relay."""
+    generation = re.search(r'master-g(\d+)-roster', roster)
+    assert generation is not None
+    return f'.git/pstack-roster-g{generation[1]}.toml'
+
+
 def relay_roster(store, roster, thread):
     """Under the git store the roster snapshot is a local-only file, so the old master uploads it to the next master's thread itself: the two lines
-    that say how, in the form steer's relay uses."""
+    that say how, in the form steer's relay uses (the destination repo-relative, the source this orb's snapshot)."""
     path = os.path.abspath(f'{store}/{roster}')
+    wait = env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
     sys.stdout.write(
-        f'relay: upload_thread_file path={path} destination={path} thread={thread}\n'
-        'relay: upload it before you end this turn; take-master on the next master waits for your turn to end\n'
+        f'relay: upload_thread_file path={path} destination={relay_name(roster)} thread={thread}\n'
+        f'relay: upload it before you end this turn; take-master on the next master waits at most {wait} s for your turn to end, '
+        'and keeps its own roster when the file is not there\n'
     )
+
+
+def fetch_uploaded_roster(store, rel):
+    """The snapshot the old master uploaded to the repo's .git (relay_name) moved to its place in the store: whether it was there. A move
+    across filesystems copies and then removes the upload."""
+    root = bundle.repo_of(store)
+    uploaded = Path(root, relay_name(rel)) if root else None
+    if uploaded is None or not uploaded.is_file():
+        return False
+    snapshot = Path(store, rel)
+    snapshot.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.replace(uploaded, snapshot)
+    except OSError as err:
+        if err.errno != errno.EXDEV:
+            raise ToolFailed(
+                1,
+                f'take-master: cannot move the uploaded roster {uploaded}: {err.strerror}',
+            ) from None
+        shutil.copyfile(uploaded, snapshot)
+        uploaded.unlink()
+    return True
 
 
 def restore_roster(store):
@@ -556,6 +589,8 @@ def restore_roster(store):
     if not rel:
         return
     snapshot = f'{store}/{rel}'
+    if gitstore.is_git(store) and not os.path.exists(snapshot):
+        fetch_uploaded_roster(store, rel)
     try:
         data = Path(snapshot).read_bytes()
     except OSError as err:
