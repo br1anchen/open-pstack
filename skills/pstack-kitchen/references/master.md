@@ -85,7 +85,18 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    the run's anchor: run `kitchen.sh nest <store>`, call `update_thread` for
    each thread it lists (amp module, through code_exec, `{thread,
    parent_thread: <anchor>}`; `parent_thread: null` for a row listed as
-   `top-level`), then `kitchen.sh nest <store> --done <thread>...`. Under Amp threads a kept sidekick session
+   `top-level`), then `kitchen.sh nest <store> --done <thread>...`. A
+   `snooze-due: N role threads` line in `kitchen.sh status` means role threads
+   have no open work: after a review note, an answered consult or a verdict,
+   run `kitchen.sh snooze <store>`, call `update_thread` for each thread it
+   lists (`{thread, snooze: "indefinite"}`), then `kitchen.sh snooze <store>
+   --done <thread>...`. When `dispatch`, `discuss`, `consult` or `steer`
+   refuses with `snoozed: <T> is snoozed`, call `update_thread({thread,
+   snooze: "off"})`, run `kitchen.sh snooze <store> --wake <T>`, and run the
+   command again. Snoozed or not, a role blocked on a question for the human or
+   in an error only the human can fix (a `needs-human:` line in `status`, a
+   `blocked` report with Questions, an approval dialog) is relayed to the human
+   from your own thread. `PSTACK_SNOOZE_ROLES=0` turns the snoozing off. Under Amp threads a kept sidekick session
    gets a brief's playbook and report sections as a pointer to the brief that
    carried them (`Unchanged from briefs/...`); there is nothing to do about it,
    and a rotation, a changed composition or a compaction brings them back in
