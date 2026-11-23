@@ -63,3 +63,7 @@
 2026-11-23T20:29:07Z	1795465747	master	wake	039-roster-handoff-fix	verify:clean
 2026-11-23T20:29:28Z	1795465768	master	log	-	review-039: 010 and 039 accepted on clean verdict 039-v1; land only with 042
 2026-11-23T20:51:00Z	1795467060	master	send-verify	038-snooze-role-threads	amp:038
+2026-11-23T20:51:16Z	1795467076	master	nest-pending	-	T-01a20a2d-4712-70f9-b88d-f3bf687500f7 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T20:51:24Z	1795467084	master	wake	038-snooze-role-threads	verify:progress
+2026-11-23T20:51:58Z	1795467118	master	nest	-	T-01a20a2d-4712-70f9-b88d-f3bf687500f7 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T20:52:04Z	1795467124	master	reuse	042-roster-relay-path	sidekick: pstack, pstack-docs, context 44%
