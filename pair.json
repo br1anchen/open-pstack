@@ -73,9 +73,9 @@
     "rotation_required": false,
     "delivered": {
       "generation": "17",
-      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "044-roster-relay-repo",
+      "brief": "040-nest-every-start",
       "compactions": 0
     },
     "failovers": [
@@ -109,9 +109,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "044-roster-relay-repo-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "title": "kitchen-followups master",
@@ -322,36 +320,5 @@
   "landing": {
     "parent": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "parent_ref": "be882968"
-  },
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/044-roster-relay-repo-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/044-roster-relay-repo-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/044-roster-relay-repo.md",
-    "scratch": "044-roster-relay-repo-verify",
-    "units": "042 044",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "044-roster-relay-repo",
-    "started": 1795473635,
-    "deadline": 1795476335,
-    "class": "escalated",
-    "entry": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "claude-opus-5-5"
-      ],
-      "fallback": null,
-      "fallbacks": [],
-      "source": "default"
-    },
-    "retried": false,
-    "argv": [
-      "044",
-      "--covers",
-      "042"
-    ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-044-roster-relay-repo-verify/T-01a20a91-9a8d-7284-baac-5a12ee34cb56.jsonl"
   }
 }
