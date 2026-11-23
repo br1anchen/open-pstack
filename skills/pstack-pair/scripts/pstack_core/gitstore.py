@@ -94,7 +94,7 @@ RULES = (
         'roster snapshots of a master hand-over (the host roster stays on the host)',
         r'sessions/master-g\d+-roster\.toml',
         LOCAL,
-        ignore=['sessions/*-roster.toml'],
+        ignore=['sessions/master-g*-roster.toml'],
     ),
     _rule(
         'per-writer-generation append files',
