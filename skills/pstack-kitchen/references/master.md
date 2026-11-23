@@ -96,7 +96,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    command again. Snoozed or not, a role blocked on a question for the human or
    in an error only the human can fix (a `needs-human:` line in `status`, a
    `blocked` report with Questions, an approval dialog) is relayed to the human
-   from your own thread. `PSTACK_SNOOZE_ROLES=0` turns the snoozing off. Under Amp threads a kept sidekick session
+   from your own thread. `PSTACK_SNOOZE_ROLES=0` stops new snoozing only; a thread
+   snoozed earlier still needs `update_thread({thread, snooze: "off"})` and
+   `kitchen.sh snooze <store> --wake <T>`. Under Amp threads a kept sidekick session
    gets a brief's playbook and report sections as a pointer to the brief that
    carried them (`Unchanged from briefs/...`); there is nothing to do about it,
    and a rotation, a changed composition or a compaction brings them back in

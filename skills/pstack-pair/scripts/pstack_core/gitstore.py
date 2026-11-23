@@ -108,7 +108,7 @@ RULES = (
     _rule(
         "the master's files",
         r'(?:pair\.json|standing-orders\.md|queue|decisions\.tsv|followups\.md|session-handoff\.md|status\.md|gates\.md|paused'
-        r'|nest-pending\.tsv|events\.tsv|gates\.tsv)',
+        r'|nest-pending\.tsv|snooze\.tsv|events\.tsv|gates\.tsv)',
         MASTER,
         ['master'],
     ),

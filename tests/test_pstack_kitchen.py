@@ -14951,10 +14951,33 @@ class AmpKitchenTests(KitchenScriptTests):
     def test_snooze_done_and_wake_record_each_change_log_it_and_refuse_a_thread_the_store_never_named(
         self,
     ):
-        sidekick = amp_thread(1)
+        sidekick, old_master = amp_thread(1), amp_thread(9)
+        self.write_threads(
+            {
+                **self.threads_json(),
+                old_master: {'name': 'demo-master', 'role': 'master', 'store': os.path.realpath(self.store), 'started': 1},
+            }
+        )  # fmt: skip
         out = self.run_sh('snooze', str(self.store), '--done', 'T-nope', code=1)
         self.assertIn('not recorded for snoozing: T-nope', out)
         self.assertFalse((self.store / 'snooze.tsv').exists())
+        # A master, and a thread that is working or has open work, are refused before any row is written.
+        self.review_unit(False)
+        self.snooze_world({sidekick: 'tool_use', old_master: 'idle'})
+        for thread, said in (
+            (old_master, f'snooze: {old_master} is a master thread; masters are never snoozed'),
+            (sidekick, f'snooze: {sidekick} is not snoozable now (its state is tool_use)'),
+        ):  # fmt: skip
+            out = self.run_sh('snooze', str(self.store), '--done', thread, code=1)
+            self.assertIn(said, out)
+        self.snooze_world({sidekick: 'idle'})
+        out = self.run_sh('snooze', str(self.store), '--done', sidekick, code=1)
+        self.assertIn(
+            f'snooze: {sidekick} is not snoozable now (its unit has no review note)',
+            out,
+        )
+        self.assertFalse((self.store / 'snooze.tsv').exists())
+        self.review_unit(True)
         self.assertEqual(
             self.run_sh('snooze', str(self.store), '--done', sidekick, sidekick),
             f'snoozed: {sidekick}\n',
@@ -15002,7 +15025,9 @@ class AmpKitchenTests(KitchenScriptTests):
         consult.write_text(
             re.sub(r'\{\{[^}]*\}\}', 'x', consult.read_text(), flags=re.DOTALL)
         )
-        self.run_sh('snooze', str(self.store), '--done', sidekick, consultant)
+        with (self.store / 'snooze.tsv').open('a') as f:
+            for thread, role in ((sidekick, 'sidekick'), (consultant, 'consultant')):
+                f.write(f'2026-11-23T00:00:00Z\t{thread}\t{role}\tsnoozed\n')
         pair, queue = self.state(), (self.store / 'queue').exists()
         for label, args in (
             ('dispatch', ('dispatch', str(b))),
@@ -15052,6 +15077,52 @@ class AmpKitchenTests(KitchenScriptTests):
         self.env.pop('PSTACK_SNOOZE_ROLES')
         self.run_sh('snooze', str(self.store), '--done', sidekick)
         self.assertNotIn('snooze-due:', self.run_sh('status', str(self.store)))
+
+    def test_a_plan_round_to_an_awake_sidekick_and_a_snoozed_consultant_sends_nothing_until_it_is_woken(
+        self,
+    ):
+        sidekick, consultant = amp_thread(1), amp_thread(2)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        plan = self.store / 'plans/001-api.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 001: api\n\nrisk: escalated\n')
+        with (self.store / 'snooze.tsv').open('a') as f:
+            f.write(f'2026-11-23T00:00:00Z\t{consultant}\tconsultant\tsnoozed\n')
+        before = len(self.thread_messages(sidekick))
+        out = self.run_sh('discuss', str(self.store), str(plan), code=5)
+        self.assertIn(f'snoozed: {consultant} is snoozed', out)
+        self.assertEqual(len(self.thread_messages(sidekick)), before)
+        self.assertNotIn('\tsend-plan\t', (self.store / 'events.tsv').read_text())
+        self.run_sh('snooze', str(self.store), '--wake', consultant)
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1', code=None)
+        for thread in (sidekick, consultant):
+            self.assertTrue(
+                any('PLAN' in m for m in self.thread_messages(thread)), thread
+            )
+
+    def test_status_exports_each_role_thread_once(self):
+        sidekick, consultant = amp_thread(1), amp_thread(2)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.review_unit(True)
+        self.snooze_world({sidekick: 'idle', consultant: 'error'})
+        log = self.fake / 'amp.log'
+        mark = len(log.read_text().splitlines())
+        out = self.run_sh('status', str(self.store))
+        self.assertIn('snooze-due: 1 role thread', out)
+        self.assertIn(f'needs-human: consultant {consultant} (error)', out)
+        exports = [
+            line.split()[2]
+            for line in log.read_text().splitlines()[mark:]
+            if line.startswith('threads export ')
+        ]
+        for thread in (sidekick, consultant):
+            self.assertEqual(exports.count(thread), 1, exports)
 
     def test_nest_asks_the_named_thread_when_nest_via_is_set(self):
         self.three_pending()
@@ -18893,6 +18964,22 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertIn(
             '"brief": "' + str(b) + '"',
             self.remote_git('show', 'kitchen/demo:pair.json'),
+        )
+
+    def test_a_snooze_done_and_a_master_publish_put_snooze_tsv_on_the_branch(self):
+        sidekick = amp_thread(1)
+        self.review_unit(True)
+        self.snooze_world({sidekick: 'idle'})
+        self.assertEqual(
+            self.run_sh('snooze', str(self.store), '--done', sidekick),
+            f'snoozed: {sidekick}\n',
+        )
+        self.run_sh('snooze', str(self.store), '--wake', sidekick)
+        self.dispatch(self.brief('002', 'next', ['src/**', 'tests/**']))
+        self.assertIn('snooze.tsv', self.branch_tree())
+        self.assertIn(
+            f'\t{sidekick}\tsidekick\tsnoozed',
+            self.remote_git('show', 'kitchen/demo:snooze.tsv'),
         )
 
     def reject_code_pushes(self, only='*'):

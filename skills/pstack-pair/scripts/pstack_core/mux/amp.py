@@ -221,14 +221,36 @@ def iso_epoch(text):
         return 0
 
 
+_EXPORTS = None
+
+
+@contextlib.contextmanager
+def exports_cached():
+    """Within the block each thread is exported once: a command that reads one thread's state in several places asks amp a single time. The
+    cache lives for the block only."""
+    global _EXPORTS
+    outer = _EXPORTS
+    if outer is None:
+        _EXPORTS = {}
+    try:
+        yield
+    finally:
+        _EXPORTS = outer
+
+
 def export(thread):
     """The thread as `amp threads export` prints it, {} when amp cannot say."""
+    if _EXPORTS is not None and thread in _EXPORTS:
+        return _EXPORTS[thread]
     r = run(['amp', 'threads', 'export', thread])
     try:
         doc = json.loads(r.stdout) if r.returncode == 0 else {}
     except ValueError:
-        return {}
-    return doc if isinstance(doc, dict) else {}
+        doc = {}
+    doc = doc if isinstance(doc, dict) else {}
+    if _EXPORTS is not None:
+        _EXPORTS[thread] = doc
+    return doc
 
 
 def thread_title(thread):

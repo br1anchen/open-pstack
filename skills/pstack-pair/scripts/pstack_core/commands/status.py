@@ -196,7 +196,9 @@ def run(ctx, args):
     out = Tee(ctx, f'{store}/status.md')
     code = 0
     try:
-        lines(ctx, store, out)
+        # Every part of the report that asks amp about a thread's state shares one answer for it.
+        with amp.exports_cached():
+            lines(ctx, store, out)
     except MissingStore as e:
         sys.stderr.write(translate(e, ctx.prog)[0])
         sys.stderr.flush()
