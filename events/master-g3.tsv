@@ -83,3 +83,11 @@
 2026-11-23T21:23:38Z	1795469018	master	nest	-	T-01a20a4a-b17c-7023-b3a7-9a778f04d274 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-23T21:23:44Z	1795469024	master	reuse	043-snooze-role-threads-fix	sidekick: pstack, pstack-docs, context 47%
 2026-11-23T21:23:51Z	1795469031	master	send-brief	043-snooze-role-threads-fix	
+2026-11-23T21:24:06Z	1795469046	master	queue	040-nest-every-start	
+2026-11-23T21:24:36Z	1795469076	master	queue	044-roster-relay-repo	
+2026-11-23T21:24:37Z	1795469077	master	log	-	review-042: 042 joo medium: upload looked up via published pair.json paths; fix 045 before landing
+2026-11-23T21:24:46Z	1795469086	master	log	-	plan: renumber: 042's fix is brief 044; joo-mediums fix becomes 045
+2026-11-23T21:35:55Z	1795469755	master	verify	042-roster-relay-path	reject
+2026-11-23T21:35:55Z	1795469755	master	wake	042-roster-relay-path	verify:reject
+2026-11-23T21:36:10Z	1795469770	master	log	-	verify-042: 042 reject: ignore glob wider than LOCAL regex; folded into 044 step 2 with joo's repo-lookup medium
+2026-11-23T22:03:17Z	1795471397	master	send-verify	043-snooze-role-threads-fix	claude:038 043

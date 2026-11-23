@@ -127,3 +127,6 @@ ts	phase	decision	why	evidence	result
 2026-11-23T20:53:35Z	plan	renumber: 038's fix is brief 043; joo-mediums fix becomes 044	new-brief took 043	reviews/038, followups.md	order: 042 running, 043, 040, 044, plans 014-016, 041
 2026-11-23T21:05:51Z	archive	archive verifier T-01a20a2d-4712-70f9-b88d-f3bf687500f7	no longer used by the store; its verdict is recorded	amp threads archive T-01a20a2d-4712-70f9-b88d-f3bf687500f7	archived
 2026-11-23T21:06:00Z	verify-038	038 reject: half-sent plan round (= joo medium), already brief 043 step 2; no separate revise brief	verdict 038-v1	reviews/038, briefs/043	043 queued after 042; verify --covers 038
+2026-11-23T21:24:37Z	review-042	042 joo medium: upload looked up via published pair.json paths; fix 045 before landing	joo cd5a1769	briefs/045; followups.md	order: 043 running, 045, 040, 044
+2026-11-23T21:24:46Z	plan	renumber: 042's fix is brief 044; joo-mediums fix becomes 045	new-brief took 044	followups.md	order: 043 running, 044, 040, 045, plans 014-016, 041
+2026-11-23T21:36:10Z	verify-042	042 reject: ignore glob wider than LOCAL regex; folded into 044 step 2 with joo's repo-lookup medium	verdict 042-v1	briefs/044	044 verified --covers 042

@@ -38,15 +38,20 @@
 ## s4-hero-1258 master feedback (T-01a1feab-6ada-7110-87cc-63c074d88bde, 2026-11-21)
 
 - Items 1-4 (nesting: starts print no nest lines, archived threads cannot take a parent, take-master nests under the old master, `nest --done` unchecked): brief 040 nest-every-start.
-- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 044, the joo-mediums fix; one rule for when rotation_required is set and cleared.
-- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 044 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
+- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 045, the joo-mediums fix; one rule for when rotation_required is set and cleared.
+- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 045 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
 - `feedback` with no registered maintainer delivers nowhere useful (the report reached this run only by a thread message): retro feedback.
 
 ## ChenChess orb-mbx-warm feedback (T-01a1fed1-e978-74a5-a348-340b497bb301, 2026-11-23)
 
-- The landing verifier and the lander compile the same tree in two orbs (~17 min cold median vs 1m42s warm rerun): plan 041 verifier-lands (escalated, plan round), after the queued work. Joo-mediums fix is brief 044.
+- The landing verifier and the lander compile the same tree in two orbs (~17 min cold median vs 1m42s warm rerun): plan 041 verifier-lands (escalated, plan round), after the queued work. Joo-mediums fix is brief 045.
 
 ## 039 (joo 2026-11-23T20-14-04-846Z-ae62c835)
 
 - master.py:539 (medium): the roster relay names the old orb's absolute store path as the upload destination; steer's relay uses a repo-relative `.git/...` path. If the next master's store path differs, the upload misses and the next master quietly keeps its own roster (039's fallback). Brian: fix before landing; brief 042 roster-relay-path.
 - gitstore.py:97 (low): the ignore glob `sessions/*-roster.toml` is wider than the LOCAL regex `sessions/master-g\d+-roster\.toml`; make them match: brief 042 roster-relay-path.
+
+## 042 (joo 2026-11-23T21-21-49-638Z-cd5a1769)
+
+- master.py:559 (medium): take-master finds the upload through `repo_of(store)`, which reads the published pair.json's old paths: fix brief 044 roster-relay-repo before landing 010/039/042.
+- 042 test keeps the store at the old master's path (report Deviations); 044's test covers a different checkout path.

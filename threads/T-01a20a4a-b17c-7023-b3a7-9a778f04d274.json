@@ -1,5 +1,6 @@
 {
  "args": [],
+ "at": 1795469753,
  "generation": 0,
  "kind": "claude",
  "name": "kitchen-followups-verifier",
@@ -17,6 +18,6 @@
  "role": "verifier",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795468999,
- "state": "started",
+ "state": "retired",
  "thread": "T-01a20a4a-b17c-7023-b3a7-9a778f04d274"
 }

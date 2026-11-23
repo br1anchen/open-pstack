@@ -89,7 +89,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:7",
+    "pane_id": "amp:8",
     "kind": "claude",
     "started_at": null
   },
@@ -110,7 +110,7 @@
     "closed": false
   },
   "scratch": [
-    "042-roster-relay-path-verify"
+    "043-snooze-role-threads-fix-verify"
   ],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
@@ -319,16 +319,16 @@
     "parent_ref": "be882968"
   },
   "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/042-roster-relay-path-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/042-roster-relay-path-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/042-roster-relay-path.md",
-    "scratch": "042-roster-relay-path-verify",
-    "units": "042",
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/043-snooze-role-threads-fix-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/043-snooze-role-threads-fix-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/043-snooze-role-threads-fix.md",
+    "scratch": "043-snooze-role-threads-fix-verify",
+    "units": "038 043",
     "risk": "escalated",
     "sample": 1.0,
-    "unit": "042-roster-relay-path",
-    "started": 1795468988,
-    "deadline": 1795471688,
+    "unit": "043-snooze-role-threads-fix",
+    "started": 1795471397,
+    "deadline": 1795474097,
     "class": "escalated",
     "entry": {
       "kind": "claude",
@@ -342,9 +342,10 @@
     },
     "retried": false,
     "argv": [
-      "042"
+      "043",
+      "--covers",
+      "038"
     ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-042-roster-relay-path-verify/T-01a20a4a-b17c-7023-b3a7-9a778f04d274.jsonl"
+    "delivered": false
   }
 }
