@@ -1,0 +1,16 @@
+{
+ "code": [
+  "bee0dc78bf5e357ee0c008b70ba54e1c35ad6a1b"
+ ],
+ "generation": 16,
+ "outputs": [
+  {
+   "path": "reports/038-snooze-role-threads.md",
+   "sha256": "bb8e5bc7447fee6b71bc140af6d499165f112abd517249f7e93aa24612cf0682"
+  }
+ ],
+ "request": "c45784d84025",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fe59-398e-71cb-8cac-577e8fe343df"
+}

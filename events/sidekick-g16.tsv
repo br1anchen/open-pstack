@@ -21,3 +21,8 @@
 2026-11-23T20:13:40Z	1795464820	sidekick	finish-verify-pass	039-roster-handoff-fix	fc6d096b7
 2026-11-23T20:13:40Z	1795464820	sidekick	rotation-required	039-roster-handoff-fix	generation:16 sha256:da39234d8b61
 2026-11-23T20:13:42Z	1795464822	sidekick	report	039-roster-handoff-fix	done
+2026-11-23T20:31:40Z	1795465900	sidekick	step	038-snooze-role-threads	1:5e82657fc
+2026-11-23T20:40:12Z	1795466412	sidekick	step	038-snooze-role-threads	2:bee0dc78b
+2026-11-23T20:49:49Z	1795466989	sidekick	finish-verify-pass	038-snooze-role-threads	bee0dc78b
+2026-11-23T20:49:49Z	1795466989	sidekick	rotation-required	038-snooze-role-threads	generation:16 sha256:bb8e5bc7447f
+2026-11-23T20:49:52Z	1795466992	sidekick	report	038-snooze-role-threads	done
