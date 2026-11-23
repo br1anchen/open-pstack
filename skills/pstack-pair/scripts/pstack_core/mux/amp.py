@@ -557,6 +557,8 @@ def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
         return 'unknown', 'state unknown (export failed or gave none)'
     if state not in SETTLED:
         return state, f'working ({state}): it is in a turn'
+    if thread in {r.thread for r in nest_pending(store)}:
+        return state, NEST_PENDING
     if why := amp_routing.kept_by_branch(store, thread, role, tip):
         return state, why
     sent = load_json(outbox_path()).get(thread)
@@ -584,6 +586,16 @@ def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
     if role == 'master' and (doc.get('master') or {}).get('previous'):
         return state, 'take-master has not run yet'
     return state, ''
+
+
+NEST_PENDING = 'nest pending (nest it first; update_thread cannot set a parent on an archived thread)'
+
+
+def nest_pending(store):
+    """The nest rows of the run still waiting for update_thread."""
+    from ..commands import nest
+
+    return nest.pending(store)
 
 
 def archivable(thread, store, role=''):

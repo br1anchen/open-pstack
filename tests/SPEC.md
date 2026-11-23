@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at eb8228f9 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at b6ff274e by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -70,7 +70,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `pair.sh log <store> <phase> <decision> <why> <evidence> <result>` — skills/pstack-pair/scripts/pair.sh help:56 — test_pstack_pair.PairScriptTests.test_pair
 - `pair.sh sync <bundle-path-or-url>` — skills/pstack-pair/scripts/pair.sh help:58 — test_pstack_core.GitStoreTests.test_gitstore_store_to_git_publishes_the_store_minus_its_local_only_files
 - `pair.sh relay-done <store> <id>` — skills/pstack-pair/scripts/pair.sh help:60 — test_pstack_kitchen.AmpKitchenTests.test_a_steer_to_a_working_thread_is_relayed_through_the_master_once
-- `pair.sh threads <store> [--archive]` — skills/pstack-pair/scripts/pair.sh help:62 — test_pstack_kitchen.AmpKitchenTests.test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master
+- `pair.sh threads <store> [--archive]` — skills/pstack-pair/scripts/pair.sh help:62 — test_pstack_kitchen.AmpKitchenTests.test_the_sweep_keeps_a_thread_with_a_pending_nest_row_until_nest_done
 - `pair.sh metrics <store>` — skills/pstack-pair/scripts/pair.sh help:64 — test_pstack_pair.PairScriptTests.test_pair
 - `pair.sh scan-secrets <store>` — skills/pstack-pair/scripts/pair.sh help:66 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store
 - `pair.sh (guided) init <slug> [--store DIR]` — skills/pstack-pair-guided/scripts/pair.sh help:3 — test_pstack_pair.PairScriptTests.test_guided
@@ -105,7 +105,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `pair.sh (guided) log <store> <phase> <decision> <why> <evidence> <result>` — skills/pstack-pair-guided/scripts/pair.sh help:59 — test_pstack_pair.PairScriptTests.test_guided
 - `pair.sh (guided) sync <bundle-path-or-url>` — skills/pstack-pair-guided/scripts/pair.sh help:61 — test_pstack_core.GitStoreTests.test_gitstore_store_to_git_publishes_the_store_minus_its_local_only_files
 - `pair.sh (guided) relay-done <store> <id>` — skills/pstack-pair-guided/scripts/pair.sh help:63 — test_pstack_kitchen.AmpKitchenTests.test_a_steer_to_a_working_thread_is_relayed_through_the_master_once
-- `pair.sh (guided) threads <store> [--archive]` — skills/pstack-pair-guided/scripts/pair.sh help:65 — test_pstack_kitchen.AmpKitchenTests.test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master
+- `pair.sh (guided) threads <store> [--archive]` — skills/pstack-pair-guided/scripts/pair.sh help:65 — test_pstack_kitchen.AmpKitchenTests.test_the_sweep_keeps_a_thread_with_a_pending_nest_row_until_nest_done
 - `pair.sh (guided) metrics <store>` — skills/pstack-pair-guided/scripts/pair.sh help:67 — test_pstack_pair.PairScriptTests.test_guided
 - `pair.sh (guided) scan-secrets <store>` — skills/pstack-pair-guided/scripts/pair.sh help:69 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store
 - `pair.sh (trio) init <slug> [--store DIR]` — skills/pstack-trio/scripts/pair.sh help:3 — test_pstack_pair.PairScriptTests.test_trio
@@ -141,7 +141,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `pair.sh (trio) log <store> <phase> <decision> <why> <evidence> <result>` — skills/pstack-trio/scripts/pair.sh help:67 — test_pstack_pair.PairScriptTests.test_trio
 - `pair.sh (trio) sync <bundle-path-or-url>` — skills/pstack-trio/scripts/pair.sh help:69 — test_pstack_core.GitStoreTests.test_gitstore_store_to_git_publishes_the_store_minus_its_local_only_files
 - `pair.sh (trio) relay-done <store> <id>` — skills/pstack-trio/scripts/pair.sh help:71 — test_pstack_kitchen.AmpKitchenTests.test_a_steer_to_a_working_thread_is_relayed_through_the_master_once
-- `pair.sh (trio) threads <store> [--archive]` — skills/pstack-trio/scripts/pair.sh help:73 — test_pstack_kitchen.AmpKitchenTests.test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master
+- `pair.sh (trio) threads <store> [--archive]` — skills/pstack-trio/scripts/pair.sh help:73 — test_pstack_kitchen.AmpKitchenTests.test_the_sweep_keeps_a_thread_with_a_pending_nest_row_until_nest_done
 - `pair.sh (trio) metrics <store>` — skills/pstack-trio/scripts/pair.sh help:75 — test_pstack_pair.PairScriptTests.test_trio
 - `pair.sh (trio) scan-secrets <store>` — skills/pstack-trio/scripts/pair.sh help:77 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store
 - `kitchen.sh log <store> <phase> <decision> <why> <evidence> <result>` — skills/pstack-kitchen/scripts/kitchen.sh help:8 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_log_records_the_decision_and_a_master_log_event
@@ -240,7 +240,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/consult.py:88 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
 - exit 2 (herdr or gate failure): … … is not live; run: pair.sh spawn … --only … --… <kind> — skills/pstack-pair/scripts/pstack_core/consult.py:135 — test_pstack_core.CoreTests.test_discuss_behaviour (+2)
 - exit 2 (herdr or gate failure): consultant … is not live; run: pair.sh spawn … --only consultant --consultant <kind> — skills/pstack-pair/scripts/pstack_core/consult.py:340 — test_pstack_core.CoreTests.test_trio_spawn_and_discuss_report_the_state_they_stop_on (+1)
-- exit 2 (herdr or gate failure): the next master thread did not start: … — skills/pstack-pair/scripts/pstack_core/mux/amp.py:1419 — test_pstack_kitchen.AmpKitchenTests.test_a_master_thread_that_does_not_start_leaves_the_run_where_it_was (+2)
+- exit 2 (herdr or gate failure): the next master thread did not start: … — skills/pstack-pair/scripts/pstack_core/mux/amp.py:1431 — test_pstack_kitchen.AmpKitchenTests.test_a_master_thread_that_does_not_start_leaves_the_run_where_it_was (+2)
 - exit 2 (herdr or gate failure): tab create returned no pane id — skills/pstack-pair/scripts/pstack_core/panes.py:49 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
 - exit 2 (herdr or gate failure): pane split returned no pane id — skills/pstack-pair/scripts/pstack_core/panes.py:55 — test_pstack_core.CoreTests.test_a_pane_that_will_not_split_ends_verify_saying_no_pane_id_came_back (+1)
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/send.py:141 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
@@ -249,7 +249,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): prime-agent cannot run under …: it reports no Prime session to stop the role by; use anot — skills/pstack-pair/scripts/pstack_core/spawn.py:329 — test_pstack_core.RexMuxTests.test_a_prime_role_is_refused_where_no_session_is_tracked
 - exit 2 (herdr or gate failure): no fallback recorded for a failed …; pass --fallback KIND or fix the agent — skills/pstack-pair/scripts/pstack_core/spawn.py:484 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
 - exit 2 (herdr or gate failure): every agent of the sidekick chain failed its preflight (…) — skills/pstack-pair/scripts/pstack_core/spawn.py:487 — test_pstack_kitchen.AmpKitchenTests.test_a_spawn_whose_whole_chain_fails_starts_nothing
-- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+517)
+- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+519)
 - exit 2 (herdr or gate failure): the last step row does not start with a JSON step number: … — skills/pstack-pair/scripts/pstack_core/wait.py:235 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words (+1)
 - exit 2 (herdr or gate failure): cannot read the master's agent kind from …; run pair.sh init first — skills/pstack-trio/scripts/variant.py:97 — test_pstack_core.CoreTests.test_trio_spawn_and_discuss_report_the_state_they_stop_on
 - exit 3 (agent blocked): sidekick … is …; resolve that before queueing — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:501 — test_pstack_core.CoreTests.test_queue_accepts_a_sidekick_idle_on_a_background_command_and_refuses_a_blocked_or_quiet_one (+2)
@@ -424,7 +424,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `nest-pending.tsv` written by `kitchen.sh` starts, `kitchen.sh nest`: one row per thread waiting for its parent; a later `nested` row closes it — skills/pstack-kitchen/SKILL.md:674 — test_pstack_kitchen.KitchenScriptTests.test_nest_writes_nothing_outside_amp_threads (+3)
 - `drains/<role>-g<n>/<request>.json` written by a sidekick or consultant at `finish` or `notify`: the receipt for one request: thread, request, outputs with sha256, code heads — skills/pstack-kitchen/SKILL.md:682 — test_pstack_core.GitStoreTests.test_gitstore_ownership_table_classifies_every_path_of_a_real_store_layout (+6)
 - `code/<role>-g<n>.bundle` written by a role, when origin refuses its code ref: the commits of a report, in place of the push to `kitchen-code/<slug>/<role>-g<n>` — skills/pstack-kitchen/SKILL.md:683 — test_pstack_pair.PairScriptTests.test_trio (+368)
-- `threads/<thread-id>.json` written by master: which thread plays which role, and the requests and steer relays sent to it, so a master in a fresh clone rebu — skills/pstack-kitchen/SKILL.md:684 — test_pstack_pair.PairScriptTests.test_trio (+65)
+- `threads/<thread-id>.json` written by master: which thread plays which role, and the requests and steer relays sent to it, so a master in a fresh clone rebu — skills/pstack-kitchen/SKILL.md:684 — test_pstack_pair.PairScriptTests.test_trio (+66)
 - `pair.json` `.consultant.failovers` — skills/pstack-kitchen/scripts/kitchen_core/setup.py:365 — test_pstack_core.CoreTests.test_consultant_behaviour (+10)
 - `pair.json` `.consultant.kind` — skills/pstack-pair/scripts/pstack_core/spawn.py:215 — test_pstack_pair.PairScriptTests.test_trio (+60)
 - `pair.json` `.dispatch.report_order` — skills/pstack-pair/scripts/pstack_core/replies.py:35 — test_pstack_core.GitStoreTests.test_gitstore_a_redispatch_after_a_rotation_waits_for_a_new_done_report (+1)
