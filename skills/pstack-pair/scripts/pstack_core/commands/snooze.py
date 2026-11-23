@@ -53,46 +53,52 @@ def stamp():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
 
-def snoozable(store, thread, role):
-    """Whether the thread has no open work and a settled turn: not a master; idle (not working, in error, cancelled or unknown); no message or
-    relay pending to it; and, when it is a live role, the role has nothing open: the sidekick's dispatched unit is done and reviewed, the
-    consultant has no consult waiting, a verifier no verification open."""
+def why_not(store, thread, role):
+    """Why the thread may not be snoozed now, '' when it may: it is a master; its turn is not settled (working, in error, cancelled or unknown);
+    a message or relay is pending to it; or, when it is a live role, the role has work open: the sidekick's dispatched unit is not done and
+    reviewed, a consult waits on the consultant, a verification is open."""
     from ..mux import amp
 
     if role == 'master':
-        return False
+        return 'a master thread'
     state, since = amp.thread_state(amp.export(thread))
-    if state != 'idle' or amp.pending_to(store, thread, since):
-        return False
+    if state != 'idle':
+        return f'its state is {state or "unknown"}'
+    if why := amp.pending_to(store, thread, since):
+        return why
     doc = amp.load_json(f'{store}/pair.json')
     live = amp.live_threads(doc)
     if thread not in live:
-        return True
+        return ''
     role = amp.role_of(live[thread])
+    if role == 'master':
+        return 'a master thread'
     if role == 'sidekick':
         brief = (doc.get('dispatch') or {}).get('brief') or ''
         stem = os.path.basename(brief).removesuffix('.md')
-        return (
-            amp.role_is_idle(store, doc, 'sidekick')
-            and bool(stem)
-            and os.path.isfile(f'{store}/reviews/{stem}.md')
-        )
-    if role == 'consultant':
-        return amp.role_is_idle(store, doc, 'consultant')
-    return role != 'verifier' or not doc.get('verifying')
+        if not amp.role_is_idle(store, doc, 'sidekick'):
+            return 'its unit is not done'
+        if not stem or not os.path.isfile(f'{store}/reviews/{stem}.md'):
+            return 'its unit has no review note'
+    elif role == 'consultant' and not amp.role_is_idle(store, doc, 'consultant'):
+        return 'a consult waits for its advice'
+    elif role == 'verifier' and doc.get('verifying'):
+        return 'a verification is open'
+    return ''
 
 
-def candidates(store):
-    """[(thread, role)] of the role threads the master may snooze now and has not recorded snoozed: the rows `threads` lists, minus masters and
-    threads that are not this store's. Empty with snoozing off, and for any thread but the master's."""
+def candidates(store, rows=None):
+    """[(thread, role)] of the role threads the master may snooze now and has not recorded snoozed: the rows `threads` lists (`rows`, when the caller
+    has them), minus masters and threads that are not this store's. Empty with snoozing off, and for any thread but the master's."""
     if not enabled():
         return []
+    rows = mux.get().thread_rows(store) if rows is None else rows
     return [
         (row.thread, row.role)
-        for row in mux.get().thread_rows(store)
+        for row in rows
         if row.why != 'no store recorded'
         and state_of(store, row.thread) != SNOOZED
-        and snoozable(store, row.thread, row.role)
+        and not why_not(store, row.thread, row.role)
     ]
 
 
@@ -101,20 +107,30 @@ def status_lines(store):
     only the human can settle (whatever the switch says). Nothing outside an Amp master."""
     from ..mux import amp
 
+    rows = mux.get().thread_rows(store)
+    if not rows:
+        return ''
     out = ''
-    if not mux.get().thread_rows(store):
-        return out
-    due = candidates(store)
-    if due:
-        out += f'snooze-due: {len(due)} role thread{"" if len(due) == 1 else "s"}; run kitchen.sh snooze {store}\n'
-    for thread, name in amp.live_threads(load(store)).items():
-        role = amp.role_of(name)
-        if role != 'master' and amp.thread_state(amp.export(thread))[0] == 'error':
-            out += f'needs-human: {role} {thread} (error); relay it to the human from the master thread\n'
+    with amp.exports_cached():
+        due = candidates(store, rows)
+        if due:
+            out += f'snooze-due: {len(due)} role thread{"" if len(due) == 1 else "s"}; run kitchen.sh snooze {store}\n'
+        for thread, name in amp.live_threads(load(store)).items():
+            role = amp.role_of(name)
+            if role != 'master' and amp.thread_state(amp.export(thread))[0] == 'error':
+                out += f'needs-human: {role} {thread} (error); relay it to the human from the master thread\n'
     return out
 
 
 def snooze(ctx, args):
+    """One export of each thread for the whole command."""
+    from ..mux import amp
+
+    with amp.exports_cached():
+        return run_snooze(ctx, args)
+
+
+def run_snooze(ctx, args):
     """snooze <store> [--done <thread>... | --wake <thread>...]: the role threads to snooze with update_thread(thread=<T>, snooze="indefinite");
     --done records them snoozed, --wake awake (after update_thread(..., snooze="off"))."""
     usage = (
@@ -156,8 +172,16 @@ def known_roles(store):
 
 def record(store, snoozing, threads, roles):
     """Appends a snoozed (or awake) row for each of threads and logs a `snooze` (or `wake`) event; a thread already in that state, or one that
-    was never snoozed and is woken, is left as it is."""
+    was never snoozed and is woken, is left as it is. Snoozing a master, or a thread that has work open or a turn that is not settled, is refused
+    before any row is written; waking is never checked."""
     want, word = (SNOOZED, 'snoozed') if snoozing else (AWAKE, 'awake')
+    for thread in dict.fromkeys(threads) if snoozing else ():
+        if state_of(store, thread) == SNOOZED:
+            continue
+        if roles[thread] == 'master':
+            raise Die(f'snooze: {thread} is a master thread; masters are never snoozed')
+        if reason := why_not(store, thread, roles[thread]):
+            raise Die(f'snooze: {thread} is not snoozable now ({reason})')
     for thread in dict.fromkeys(threads):
         if state_of(store, thread) == want or (
             want == AWAKE and not state_of(store, thread)

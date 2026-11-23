@@ -157,6 +157,9 @@ def send_plan(ctx, store, plan, seq, round_):
     wait_on = list(round_.wait_on)
     if 'sidekick' in round_.send:
         require_fresh_session(store)
+    # Every recipient is checked before the first gets the plan: a snoozed one must not leave the round half sent.
+    for role in round_.send:
+        amp.require_awake(store, mux.get().role_thread(field(store, role, 'name')))
     for role in round_.send:
         name = field(store, role, 'name')
         deliver_plan(ctx, store, role, name, seq, plan)

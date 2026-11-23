@@ -513,8 +513,8 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   `PSTACK_NEST_VIA=<thread-id>` (optional, unset by default) makes `nest` say
   to ask that thread to set the parents instead. Under Herdr, Rex and
   subagents nothing is recorded; under Amp threads it is recorded with either
-  store backend, and under the git store `nest-pending.tsv` is published as one
-  of the master's files.
+  store backend, and under the git store `nest-pending.tsv` and `snooze.tsv` are
+  published as master files.
 - Under Amp threads the master snoozes a role thread (sidekick, consultant,
   verifier or helper) once it has no open work and its turn is settled, so the
   thread list shows the active role threads and the master threads and nothing
@@ -525,15 +525,17 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   snoozed. The amp CLI cannot snooze, so `kitchen.sh snooze <store>` lists the
   candidates and says to call `update_thread(thread=<T>, snooze="indefinite")`
   for each, then `kitchen.sh snooze <store> --done <thread>...` records it in
-  `snooze.tsv` (`--wake <thread>...` records the opposite; a thread the store
-  never named is refused). Nothing is snoozed at thread start. A `dispatch`,
+  `snooze.tsv` (`--wake <thread>...` records the opposite; `--done` refuses a master
+  thread or one that is not snoozable now, and a thread the store never named,
+  before it writes a row). Nothing is snoozed at thread start. A `dispatch`,
   `discuss`, `consult` or `steer` to a thread recorded snoozed refuses before it
   records anything, saying to call `update_thread(..., snooze="off")` and then
   `kitchen.sh snooze <store> --wake <T>`; a fresh thread has no row and is never
   refused. `status` prints `snooze-due: N role threads` while some qualify, and
   `needs-human: <role> <T> (error)` for a live role thread in error.
-  `PSTACK_SNOOZE_ROLES=0` stops new snoozing (a thread snoozed earlier still
-  needs waking); it is on by default.
+  `PSTACK_SNOOZE_ROLES=0` stops new snoozing only: a thread snoozed earlier
+  still needs `update_thread(..., snooze="off")` and `kitchen.sh snooze <store>
+  --wake <T>`. It is on by default.
 - `prime-agent` cannot run here.
 
 ## Roles and quota

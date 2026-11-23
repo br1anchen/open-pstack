@@ -22290,6 +22290,7 @@ class GitStoreTests(unittest.TestCase):
             'followups.md',
             'decisions.tsv',
             'events.tsv',
+            'snooze.tsv',
             'queue',
             'paused',
             'compositions/001.json',
@@ -22322,6 +22323,7 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual([rel for rel in walked if gitstore.classify(rel) is None], [])
         self.assertIsNone(gitstore.classify('mystery.txt'))
         self.assertIsNone(gitstore.classify('reports/a/b.md'))
+        self.assertEqual(gitstore.classify('snooze.tsv').kind, gitstore.MASTER)
 
     def test_gitstore_ignores_exactly_the_local_class(self):
         for rel in self.LOCAL_PATHS:
