@@ -39,6 +39,7 @@ from .units import (
     repo_root,
     unit_brief,
     unit_head,
+    void_verdict,
 )
 
 
@@ -250,10 +251,10 @@ def landing_unmatched_note(
 
 
 def latest_landing_verdict(store):
-    """The newest landing verdict file in the store (its number as `[ -le ]` compares it), or ''."""
+    """The newest landing verdict file in the store that is not void (its number as `[ -le ]` compares it), or ''."""
     best, found = 0, ''
     for f in sorted(glob.glob(f'{glob.escape(store)}/verdicts/landing-v[0-9]*.md')):
-        if not os.path.exists(f) or f.endswith('-packet.md'):
+        if not os.path.exists(f) or f.endswith('-packet.md') or void_verdict(f):
             continue
         number = f.rpartition('-v')[2]
         number = number[:-3] if number.endswith('.md') else number
@@ -264,12 +265,17 @@ def latest_landing_verdict(store):
 
 
 def landing_verdicts(store):
-    """Every landing verdict file in the store, newest first: the numbered ones, highest number first."""
+    """Every landing verdict file in the store that is not void, newest first: the numbered ones, highest number first."""
     numbered = []
     for f in glob.glob(f'{glob.escape(store)}/verdicts/landing-v[0-9]*.md'):
         number = f.rpartition('-v')[2]
         n = int_or_none(number[:-3] if number.endswith('.md') else number)
-        if n is not None and os.path.exists(f) and not f.endswith('-packet.md'):
+        if (
+            n is not None
+            and os.path.exists(f)
+            and not f.endswith('-packet.md')
+            and not void_verdict(f)
+        ):
             numbered.append((n, f))
     return [f for n, f in sorted(numbered, reverse=True)]
 

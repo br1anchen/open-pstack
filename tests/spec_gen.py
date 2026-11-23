@@ -636,6 +636,14 @@ HINTS = {
         ),
     ): ['verifier entry is not JSON'],
     (
+        f'{KITCHEN}/verify_state.py',
+        at(
+            f'{KITCHEN}/verify_state.py',
+            'def stop_old_verifiers',
+            'raise VerifierRunning(',
+        ),
+    ): ['stop_running_turn: true'],
+    (
         f'{KITCHEN}/verify_wait.py',
         at(f'{KITCHEN}/verify_wait.py', '--kind <another kind>', 'WaiterOutcome(2'),
     ): ['status: inconclusive (the verifier hit its provider'],

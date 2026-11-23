@@ -343,6 +343,12 @@ class VerificationTaken(PairError):
     code = 5
 
 
+class VerifierRunning(PairError):
+    """An earlier verifier of the run still runs, and only the master can stop it: no new verifier starts."""
+
+    code = 5
+
+
 class NoVerification(PairError):
     """No verification is open to cancel."""
 

@@ -357,6 +357,20 @@ def heads_in(store, head, units):
             )
 
 
+# The outcomes a packet keeps when its verification closed with no verdict (verify_state.set_outcome).
+CLOSED_WITHOUT_VERDICT = ('cancelled', 'stalled', 'missing', 'provider', 'start-failed')
+
+
+def packet_of(verdict):
+    return (verdict[:-3] if verdict.endswith('.md') else verdict) + '-packet.md'
+
+
+def void_verdict(path):
+    """Whether the verdict file was written after its verification closed without one: a cancelled, stalled or failed-over verifier that kept
+    running. Such a verdict is void; nothing counts it, whatever its status."""
+    return header_field(packet_of(path), 'verifier-outcome') in CLOSED_WITHOUT_VERDICT
+
+
 class Verdict:
     """A verdict file: its status, the units it names, the range it was made over (the packet's, which the kitchen wrote, else the one the verifier
     copied into the verdict) and whether it is a landing verdict. A malformed field is read lazily: `problem` says what is wrong, and nothing else
@@ -368,7 +382,7 @@ class Verdict:
 
     @classmethod
     def parse(cls, path):
-        packet = (path[:-3] if path.endswith('.md') else path) + '-packet.md'
+        packet = packet_of(path)
         span = header_field(packet, 'range') or header_field(path, 'range')
         span = re.split(r'[ \t\n\v\f\r]', span, maxsplit=1)[0]
         return cls(
@@ -391,6 +405,8 @@ class Verdict:
     @property
     def problem(self):
         """Empty when the verdict is well formed, else what is wrong."""
+        if void_verdict(self.path):
+            return 'void: its verification closed before this verdict was written'
         if self.status not in ('clean', 'reject', 'inconclusive'):
             return 'status is not clean, reject, or inconclusive'
         fences, evidence, fenced = 0, False, ''

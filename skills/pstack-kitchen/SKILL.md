@@ -457,7 +457,12 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
     thread; its next prompt starts a fresh one.
   - The verifier stays fresh: each verification starts a new verifier
     thread, which sends its verdict back with `kitchen.sh notify`; run
-    `verify --wait` after its sync. Keep it for escalated units and
+    `verify --wait` after its sync. Only one verifier thread is live: a
+    closed verification's thread is archived when settled. One still in a
+    turn makes `verify` refuse (exit 5) until the master stops it with
+    `update_thread({thread, archived: true, stop_running_turn: true})`, and
+    its verdict is void
+    ([master-verify.md](references/master-verify.md)). Keep it for escalated units and
     landings, and give routine profiles `verify = "batch"` or `"gates"` in
     `.agents/kitchen.toml`, so a routine unit starts no verifier thread of
     its own.

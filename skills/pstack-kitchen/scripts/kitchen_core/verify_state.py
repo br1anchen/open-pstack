@@ -23,6 +23,7 @@ from pstack_core.errors import (
     PrimeFailed,
     ToolFailed,
     VerificationTaken,
+    VerifierRunning,
     translate,
 )
 from pstack_core.exits import end_agent, stop_prime_role
@@ -172,6 +173,8 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     if not claim_close(store, verdict):
         return 70
     scratch = read(store, 'verifying.scratch')
+    m = mux.get()
+    thread = m.role_thread(name) if m.archives_threads else ''
     if kind == 'prime-agent':
         if not stop_prime_role(store, 'verifier'):
             raise PrimeFailed(
@@ -183,12 +186,80 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
         )
         if refused:
             sys.stderr.write(f'verifier exit refused: {refused}\n')
-    mux.get().pane_close(pane)
+    m.pane_close(pane)
     if kind == 'prime-agent':
         update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
     if scratch:
         remove_scratch(ctx, store, scratch)
+    if thread and verifier_thread_running(thread):
+        sys.stdout.write(stop_thread_line(store, thread))
     return 0
+
+
+def verifier_thread_running(thread):
+    """Whether an Amp verifier thread is in a turn, or amp cannot say."""
+    from pstack_core.mux import amp
+
+    return amp.thread_state(amp.export(thread))[0] not in amp.SETTLED
+
+
+def archive_verifier_thread(ctx, store, thread, trigger):
+    """Archives a verifier thread (Amp) whose verification is closed, whatever else it sent: its verdict is read or void. Whether it is stopped:
+    False while it is in a turn (or amp cannot say), which the amp CLI cannot end; a settled thread the archive fails on is stopped."""
+    from pstack_core.commands.rotate import archive_logged
+    from pstack_core.mux.base import ThreadRow
+
+    if verifier_thread_running(thread):
+        return False
+    archive_logged(ctx, store, ThreadRow(thread, 'verifier', '', ''), trigger)
+    return True
+
+
+def stop_thread_line(store, thread):
+    return (
+        f'master: verifier thread {thread} is still running after its verification closed; anything it writes now is void. Stop and archive '
+        f'it with your Amp thread tool: update_thread({{thread: "{thread}", archived: true, stop_running_turn: true}}) (amp module, through '
+        f'code_exec); kitchen.sh verify {store} starts no verifier while it runs\n'
+    )
+
+
+def stop_old_verifiers(ctx, store):
+    """A run has one live verifier. Before a verification starts, every earlier verifier of the run is stopped and its verdict is void. Under Amp
+    threads each verifier thread the run recorded and has not archived is archived when it is settled; one still in a turn is a VerifierRunning
+    (exit 5) that names the update_thread call that stops it. Under another multiplexer an earlier verifier agent still present is ended and its
+    pane closed."""
+    m = mux.get()
+    if m.archives_threads:
+        from pstack_core.mux import amp
+
+        here = os.path.realpath(store)
+        running = [
+            thread
+            for thread, e in amp.load_json(amp.threads_path()).items()
+            if e.get('role') == 'verifier'
+            and e.get('store') == here
+            and not e.get('archived')
+            and not archive_verifier_thread(
+                ctx, store, thread, 'before the next verifier starts'
+            )
+        ]
+        if running:
+            raise VerifierRunning(
+                ''.join(stop_thread_line(store, t) for t in running).rstrip('\n')
+            )
+        return
+    name = read(store, 'verifier.name')
+    agent = m.agent(name) if name else None
+    if agent is None or agent.kind == 'prime-agent':
+        return
+    end_agent(
+        name, agent.kind, int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
+    )
+    m.pane_close(agent.pane)
+    event(store, 'master', 'verify-stop', '-', name)
+    sys.stdout.write(
+        f'stopped: the earlier verifier {name} was still running; its verdict is void\n'
+    )
 
 
 def run_close(ctx, store, name, kind, pane, verdict, err=None):
@@ -301,7 +372,8 @@ def handoff_due(store, say=None, landing=False):
 
 
 def verify_cancel(ctx, store):
-    """Cancels the open verification that has no verdict yet: its verifier and pane stop, its scratch goes, and `.verifying` is cleared."""
+    """Cancels the open verification that has no verdict yet: its verifier and pane stop, its scratch goes, `.verifying` is cleared and the packet's
+    outcome is `cancelled`, so a verdict the verifier writes later is void. Under Amp threads its thread is archived when settled."""
     verdict = read(store, 'verifying.verdict')
     if not verdict:
         raise NoVerification('no verification open')
@@ -314,6 +386,8 @@ def verify_cancel(ctx, store):
     packet = read(store, 'verifying.packet')
     name = read(store, 'verifier.name')
     kind = read(store, 'verifier.kind')
+    m = mux.get()
+    thread = m.role_thread(name) if m.archives_threads else ''
     if not run_close(ctx, store, name, kind, read(store, 'verifier.pane_id'), verdict):
         raise NoVerification('no verification open (another call closed it)')
     try:
@@ -325,4 +399,6 @@ def verify_cancel(ctx, store):
     drop_verifying(store, verdict)
     event(store, 'master', 'verify-cancel', brief, units)
     sys.stdout.write(f'cancelled: {units}\n')
+    if thread:
+        archive_verifier_thread(ctx, store, thread, 'its verification is cancelled')
     return 0

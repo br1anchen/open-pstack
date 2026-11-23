@@ -39,7 +39,22 @@ The detail behind step 6 of [master.md](master.md).
      pane and scratch (it waits `KITCHEN_VERIFIER_EXIT_S`, 15 s, for the
      verifier to leave, and says nothing of `cancelled:` when another call
      closed the verification meanwhile) (`cancelled: <units>`; exit 5 with `no
-     verification open` when none is). Every return of `verify` (progress,
+     verification open` when none is). A cancel marks the verdict void, not
+     only the store: the packet's `verifier-outcome:` becomes `cancelled`, and a
+     verdict file the old verifier writes after that is ignored everywhere.
+     One verifier is live per run. Every close of a verification (cancel,
+     verdict read, stall, missing, provider) ends its verifier, and `verify`
+     checks again before it starts the next one. Under Herdr and Rex an earlier
+     verifier agent still present is ended and its pane closed (`stopped: the
+     earlier verifier <name> was still running; its verdict is void`). Under
+     Amp threads each verifier thread of the run that is not archived is
+     archived when settled. One still in a turn prints `master: verifier thread
+     <T> is still running ...` with the `update_thread({thread, archived: true,
+     stop_running_turn: true})` call that stops it, and `verify` exits 5 and
+     starts nothing until that call is made: the amp CLI cannot stop a running
+     turn. In rollout-1257 the cancelled landing-v4 and landing-v5 verifier
+     threads kept running beside landing-v6 on other SHAs until the human
+     archived them. Every return of `verify` (progress,
      grace, a verdict) is logged
      as one `verify:<what>` wake. One verification is open at a time. When a
      unit reports done while another unit's verification is open, do not hold

@@ -260,6 +260,30 @@ class Sweep:
         return f'archive: {n("archived")} archived, {n("kept")} kept, {n("in use")} in use\n'
 
 
+def archive_logged(ctx, store, row, trigger):
+    """Archives the row's thread (mux archive) and logs it in decisions.tsv and events.tsv with its thread id, then says `archived <thread>
+    (<role>): <trigger>`. Whether amp archived it."""
+    if not mux.get().archive(row):
+        return False
+    event(store, 'master', 'archive', '-', f'{row.role}:{row.thread}')
+    try:
+        log(
+            ctx,
+            [
+                store,
+                'archive',
+                f'archive {row.role} {row.thread}',
+                f'no longer used by the store; {trigger}',
+                f'amp threads archive {row.thread}',
+                'archived',
+            ],
+        )
+    except Die as e:
+        sys.stderr.write(f'archive: {row.thread} archived; not logged: {e}\n')
+    print(f'archived {row.thread} ({row.role}): {trigger}')
+    return True
+
+
 def archive_retired(ctx, store, trigger, retired_only=True):
     """Archives each thread the store no longer uses that the rule allows (mux archivable), logging each in decisions.tsv and events.tsv with its
     thread id, and says `kept <thread>: <reason>` for each it may not archive yet; a thread a live role holds is left out. Returns the rows
@@ -273,25 +297,9 @@ def archive_retired(ctx, store, trigger, retired_only=True):
             outcomes[row.thread] = 'kept'
             if Sweep.first(row.thread, row.why):
                 print(f'kept {row.thread}: {row.why}')
-        elif m.archive(row):
+        elif archive_logged(ctx, store, row, trigger):
             archived.append(row)
             outcomes[row.thread] = 'archived'
-            event(store, 'master', 'archive', '-', f'{row.role}:{row.thread}')
-            try:
-                log(
-                    ctx,
-                    [
-                        store,
-                        'archive',
-                        f'archive {row.role} {row.thread}',
-                        f'no longer used by the store; {trigger}',
-                        f'amp threads archive {row.thread}',
-                        'archived',
-                    ],
-                )
-            except Die as e:
-                sys.stderr.write(f'archive: {row.thread} archived; not logged: {e}\n')
-            print(f'archived {row.thread} ({row.role}): {trigger}')
         else:
             outcomes[row.thread] = 'kept'
             if Sweep.first(row.thread, 'amp threads archive failed'):

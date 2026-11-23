@@ -276,6 +276,8 @@ def start_verification(ctx, store, argv, o, root, allunits, c):
         warn_unreviewed(store)
         vs.handoff_due(store, landing=o.landing)
         return 0
+    # One live verifier per run: an earlier one still running is stopped first, or this call refuses.
+    vs.stop_old_verifiers(ctx, store)
     timeout_m = deadline_minutes(store, root, data, o)
     entry, kind, args_list = choose_verifier(store, root, c.cls, o)
     scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'

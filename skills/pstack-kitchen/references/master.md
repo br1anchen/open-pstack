@@ -122,7 +122,21 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    Run `kitchen.sh verify <store> <NNN>` (in Claude Code, start it with
    `--until-verdict` in the background). One verification is open at a time;
    a done unit that arrives while one is open is verified together with the
-   next. `verify` returns exit 4 with progress while the verifier works (a
+   next. One verifier is live at a time, too: before you start a new one
+   (landing-v6 after landing-v5), the previous verifier is stopped and
+   archived, and anything it writes afterwards is void. A verdict written
+   after its packet's `verifier-outcome:` became `cancelled`, `stalled`,
+   `missing`, `provider` or `start-failed` counts nowhere (land-check, the
+   landing base, `--wait`). `verify` and `verify --cancel` stop the old
+   verifier themselves wherever they can. Under Amp threads they archive a
+   settled verifier thread, but the amp CLI cannot stop a thread that is in a
+   turn. Such a thread prints `master: verifier thread <T> is still running`,
+   and `verify` refuses to start a new verifier (exit 5) until you stop it
+   with your own Amp thread tool: `update_thread({thread: "<T>", archived:
+   true, stop_running_turn: true})` (amp module, through code_exec). Do it
+   at once, then rerun `verify`. Under subagents (`PSTACK_MUX=subagents`),
+   stop the previous verifier's Task subagent (`subagent_stop`) before you
+   hand the next verifier its prompt. `verify` returns exit 4 with progress while the verifier works (a
    background runner shows it as failed; it is not), then run
    `kitchen.sh verify <store> --wait` (exit 5 means none is open). A reject
    goes to `revise` and the fix is verified with `--covers`. A rejected unit is

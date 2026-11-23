@@ -9269,7 +9269,8 @@ esac
         self,
     ):
         """The holder's close ends and a fallback attempt is already in `.verifying` when the loser resumes: the loser reports the old verdict and
-        leaves the new attempt alone."""
+        leaves the new attempt alone. The holder closed the attempt as `provider`, with no verdict, so the verdict file the loser finds was written
+        after that close and is void."""
         first = self.open_slow_verification()
         self.written_verdict(first, 'clean')
         fallback = {
@@ -9281,8 +9282,12 @@ esac
         rc, out, calls = self.lose_a_wait(
             lambda: self.finish_close(first, 'provider', then=fallback)
         )
-        self.assertEqual(rc, 0, out)
+        self.assertEqual(rc, 2, out)
         self.assertIn(f'verdict: {first["verdict"]}\n', out)
+        self.assertIn(
+            'status: invalid (void: its verification closed before this verdict was written)',
+            out,
+        )
         self.assertNotIn('-v2', out)
         self.assertEqual(self.state()['verifying'], fallback)
         self.assertEqual(calls, '')
@@ -9674,6 +9679,27 @@ esac
         )
         attempts = json.loads(fleet.stdout)['verifiers']
         self.assertEqual(sum(v['running'] for v in attempts), 0)
+
+    def test_verify_ends_an_earlier_verifier_still_running_before_it_starts_the_next(
+        self,
+    ):
+        self.open_slow_verification()
+        pane = self.state()['verifier']['pane_id']
+        # The store forgot the verification (a cancel recorded only there); its verifier still runs in its pane.
+        doc = self.state()
+        del doc['verifying']
+        (self.store / 'pair.json').write_text(json.dumps(doc))
+        out = self.run_sh(
+            'verify', str(self.store), '001', '--every', '0', '--timeout', '60', code=4
+        )
+        self.assertIn(
+            'stopped: the earlier verifier demo-verifier was still running; its verdict is void',
+            out,
+        )
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertLess(
+            calls.index(f'pane close {pane}'), calls.rindex('agent start demo-verifier')
+        )
 
     def test_verify_cancel_with_nothing_open_exits_5(self):
         self.assertIn(
@@ -15785,6 +15811,40 @@ class AmpKitchenTests(KitchenScriptTests):
         out = self.run_sh('verify', str(self.store), '--wait', code=None)
         self.assertIn(f'archived {verifier} (verifier): its verdict is recorded', out)
         self.assertEqual((self.fake / 'amp-archived').read_text(), f'{verifier}\n')
+
+    def test_a_cancelled_verifier_still_in_a_turn_blocks_the_next_until_stopped_and_its_late_verdict_is_void(
+        self,
+    ):
+        self.verify_started('--landing')
+        old = amp_thread(2)
+        self.set_state(old, 'running')
+        stop = f'update_thread({{thread: "{old}", archived: true, stop_running_turn: true}})'
+        out = self.run_sh('verify', str(self.store), '--cancel')
+        self.assertIn('cancelled: landing', out)
+        self.assertIn(f'master: verifier thread {old} is still running', out)
+        self.assertIn(stop, out)
+        self.assertFalse((self.fake / 'amp-archived').exists())
+        # The cancelled verifier writes its verdict anyway: it is void, so land-check and the next landing base never read it.
+        late = self.store / 'verdicts/landing-v1.md'
+        late.write_text(
+            'status: clean\nunits: landing\n\n## Findings\n\nnone\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        self.assertNotIn(
+            str(late), self.run_sh('land-check', str(self.store), code=None)
+        )
+        out = self.run_sh('verify', str(self.store), '--landing', code=5)
+        self.assertIn(stop, out)
+        self.assertFalse((self.store / 'verdicts/landing-v2-packet.md').exists())
+        self.assertFalse((self.fake / 'amp-threads' / amp_thread(3)).exists())
+        # The master stops it with update_thread; the next verify archives it and only then starts the next verifier.
+        self.set_state(old, 'cancelled')
+        out = self.run_sh('verify', str(self.store), '--landing', code=4)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{old}\n')
+        self.assertIn(f'amp demo-verifier ({amp_thread(3)})', out)
+        self.assertIn(
+            f'\tmaster\tarchive\t-\tverifier:{old}\n',
+            (self.store / 'events.tsv').read_text(),
+        )
 
     def sync_notified(self, thread, path):
         """The role's thread sends `path` to the master with notify and the master syncs that message's bundle: how a READY, a report or a
