@@ -22325,7 +22325,10 @@ class GitStoreTests(unittest.TestCase):
         self.assertIsNone(gitstore.classify('reports/a/b.md'))
 
     def test_gitstore_ignores_exactly_the_local_class(self):
-        self.assertIn('sessions/*-roster.toml', gitstore.gitignore_text().split())
+        self.assertIn(
+            'sessions/master-g*-roster.toml', gitstore.gitignore_text().split()
+        )
+        self.assertNotIn('sessions/*-roster.toml', gitstore.gitignore_text().split())
         for rel in self.LOCAL_PATHS:
             with self.subTest(rel=rel):
                 self.assertEqual(gitstore.classify(rel).kind, gitstore.LOCAL)
@@ -22336,9 +22339,13 @@ class GitStoreTests(unittest.TestCase):
             'events/master-g1.tsv',
             'steps/001-x.tsv',
             'sessions/a.md',
+            'sessions/other-roster.toml',
         ):
             with self.subTest(rel=rel):
                 self.assertFalse(git.ok(self.store, 'check-ignore', '-q', rel))
+        self.assertEqual(
+            gitstore.classify('sessions/other-roster.toml').kind, gitstore.MASTER
+        )
 
     def test_gitstore_a_write_to_a_path_the_writer_does_not_own_raises_ownership_error(
         self,
