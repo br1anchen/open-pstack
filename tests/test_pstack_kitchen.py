@@ -14745,6 +14745,12 @@ class AmpKitchenTests(KitchenScriptTests):
         )  # fmt: skip
         self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
 
+    def nest_all(self):
+        """Marks every pending nest row nested, as the master does once update_thread has set the parents: the sweep keeps a thread until then."""
+        threads = [r[0] for r in self.nest_rows() if r[3] == 'pending']
+        if threads:
+            self.run_sh('nest', str(self.store), '--done', *threads)
+
     def nest_rows(self):
         """(thread, role, anchor, state) of each row of nest-pending.tsv."""
         path = self.store / 'nest-pending.tsv'
@@ -15266,6 +15272,47 @@ class AmpKitchenTests(KitchenScriptTests):
         self.three_pending()
         out = self.run_sh('nest', str(self.store), '--done', 'T-nope', code=1)
         self.assertIn('not recorded for nesting: T-nope', out)
+
+    def test_the_sweep_keeps_a_thread_with_a_pending_nest_row_until_nest_done(self):
+        verifier = amp_thread(9)
+        self.retire_threads(
+            {verifier: {'name': 'demo-verifier', 'role': 'verifier', 'store': str(self.store)}}
+        )  # fmt: skip
+        self.add_nest_row(verifier, 'verifier', AMP_MASTER)
+        archived = self.fake / 'amp-archived'
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(f'kept {verifier}: nest pending (nest it first;', out)
+        self.assertFalse(archived.exists())
+        self.run_sh('nest', str(self.store), '--done', verifier)
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(f'archived {verifier} (verifier)', out)
+        self.assertEqual(archived.read_text().split(), [verifier])
+
+    def test_nest_lists_an_archived_pending_thread_with_the_unarchive_parent_rearchive_calls(
+        self,
+    ):
+        shelved = amp_thread(9)
+        self.retire_threads(
+            {shelved: {'name': 'demo-sidekick', 'role': 'sidekick', 'store': str(self.store), 'archived': 1}}
+        )  # fmt: skip
+        self.add_nest_row(shelved, 'sidekick', AMP_MASTER)
+        lines = self.run_sh('nest', str(self.store)).splitlines()
+        self.assertIn(
+            f'nest-pending: {shelved} (sidekick, archived) under {AMP_MASTER}', lines
+        )
+        self.assertIn(
+            f'nest: for archived {shelved}: call update_thread(thread={shelved}, archived=false), '
+            f'then its parent call, then update_thread(thread={shelved}, archived=true)',
+            lines,
+        )
+        self.assertEqual(
+            [
+                line
+                for line in lines
+                if 'archived=false' in line and shelved not in line
+            ],
+            [],
+        )
 
     def test_the_first_rotation_of_a_store_without_an_anchor_anchors_on_the_old_master(
         self,
@@ -15858,6 +15905,7 @@ class AmpKitchenTests(KitchenScriptTests):
             (self.store / 'advice/001-one-c1.md').write_text('status: agree\n')
         self.set_state(amp_thread(1), 'tool_use')
         self.set_state(amp_thread(2), 'idle', '2999-01-01T00:00:00.000Z')
+        self.nest_all()
         return amp_thread(2)
 
     def test_threads_archive_archives_an_idle_role_with_no_open_work_and_keeps_the_rest_in_use(
@@ -16116,6 +16164,7 @@ class AmpKitchenTests(KitchenScriptTests):
 
     def test_a_verifier_thread_is_archived_once_its_verdict_is_recorded(self):
         self.verify_started('001')
+        self.nest_all()
         verifier = amp_thread(2)
         verdict = self.store / 'verdicts/001-util-v1.md'
         verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
@@ -16214,6 +16263,7 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         consultant = amp_thread(2)
         self.assertIn(f'demo-consultant ({consultant})', out)
+        self.nest_all()
         ready = self.store / 'advice/000-ready.md'
         ready.write_text('status: done\n')
         self.sync_notified(consultant, ready)
@@ -16225,6 +16275,7 @@ class AmpKitchenTests(KitchenScriptTests):
 
     def test_a_verifier_whose_verdict_reached_the_master_by_sync_is_archived(self):
         self.verify_started('001')
+        self.nest_all()
         verifier = amp_thread(2)
         verdict = self.store / 'verdicts/001-util-v1.md'
         verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
@@ -16801,6 +16852,7 @@ class AmpKitchenTests(KitchenScriptTests):
             str(self.store),
             str(self.store / 'reports' / b.name),
         )
+        self.nest_all()
         return out
 
     def next_unit_rotates(self, seq, slug, scope):
@@ -20240,6 +20292,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.role_ready('second-orb', amp_thread(2), 2)
         self.run_sh('sync', '--branch', str(self.store))
         self.run_sh('spawn', str(self.store))
+        self.nest_all()
         old = amp_thread(1)
         self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
         return old, [p for p in self.drain_paths() if 'sidekick-g1/' in p]
