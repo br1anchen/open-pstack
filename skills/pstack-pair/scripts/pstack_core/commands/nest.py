@@ -256,8 +256,16 @@ def nest(ctx, args):
 
 def instructions(store, prog):
     """The `nest-pending:` line of each thread still waiting for a parent and the update_thread call that sets it; '' when none waits."""
+    from ..mux import amp
+
     todo = pending(store)
-    lines = [f'nest-pending: {r.thread} ({r.role}) {under(r.anchor)}' for r in todo]
+    shelved = {
+        t for t, e in amp.load_json(amp.threads_path()).items() if e.get('archived')
+    }
+    lines = [
+        f'nest-pending: {r.thread} ({r.role}{", archived" if r.thread in shelved else ""}) {under(r.anchor)}'
+        for r in todo
+    ]
     who = f'ask {os.environ[VIA]} to ' if os.environ.get(VIA) else ''
     then = f'then {prog} nest {store} --done <thread>...'
     if any(r.anchor != TOP_LEVEL for r in todo):
@@ -268,6 +276,12 @@ def instructions(store, prog):
         lines.append(
             f'nest: {who}call update_thread(thread=<T>, parent_thread=null) for each top-level row, {then}'
         )
+    lines += [
+        f'nest: {who}for archived {r.thread}: call update_thread(thread={r.thread}, archived=false), then its parent call, '
+        f'then update_thread(thread={r.thread}, archived=true)'
+        for r in todo
+        if r.thread in shelved
+    ]
     return ''.join(f'{line}\n' for line in lines)
 
 
