@@ -22348,6 +22348,21 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(
             gitstore.classify('sessions/other-roster.toml').kind, gitstore.MASTER
         )
+        for rel in (
+            'sessions/master-g2-roster.toml',
+            'sessions/master-g12-roster.toml',
+            'sessions/master-gx-roster.toml',
+            'sessions/master-g-roster.toml',
+            'sessions/other-roster.toml',
+            'sessions/master-g2-handoff.md',
+            'sessions/a/master-g2-roster.toml',
+        ):
+            with self.subTest(table=rel):
+                rule = gitstore.classify(rel)
+                self.assertEqual(
+                    rule is not None and rule.kind == gitstore.LOCAL,
+                    git.ok(self.store, 'check-ignore', '-q', rel),
+                )
 
     def test_gitstore_a_write_to_a_path_the_writer_does_not_own_raises_ownership_error(
         self,
