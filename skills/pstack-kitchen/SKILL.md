@@ -332,7 +332,7 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   that is safe, and each archive is logged (`decisions.tsv` phase `archive`, an
   `archive` event) with its thread id: a replaced sidekick or consultant once
   the new one's READY is in the store, a verifier once `verify --wait` has
-  recorded its verdict, the old master once `take-master` has run, and every
+  recorded its verdict, the old master once `take-master` has run and it is nested, and every
   remaining role at `close`. `kitchen.sh threads --archive` (and `close`) archive an idle role whose work is done (a sidekick whose last unit is done with nothing queued, a consultant with every consult answered); its next prompt starts a fresh thread. A thread is kept (`kept <thread>: <reason>`) while
   it is in a turn, a message or relay to it is pending, its unit is under verification (`.verifying` in pair.json), it sent the master
   a file the master's store does not hold yet, its report's `head:` is not in the
@@ -508,22 +508,38 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   `previous`, the masters that held it before). `init` records the first
   master's thread and its title; a store from before that takes the oldest
   master thread it started, else the current master's, the first time it needs
-  one. A master thread is never nested under another master. When a rotation
+  one. The anchor master is never nested under another thread. When a rotation
   completes, `take-master` moves the anchor to the new master: it renames the
   new master to the anchor title (`amp threads rename`; a failure prints a
   `warn:` line and does not fail the take-over), records a top-level row for
-  it and a fresh row under it for each role thread the run still uses, and
-  archives the old master as before, so archiving the old master never takes
-  the live one out of the thread panel. Only the grouping changes: orbs,
+  it and a fresh row under it for every other thread of the run: live roles,
+  earlier verifiers, archived threads and every earlier master (`.anchor.previous`
+  and `.master.sessions`), so none stays under an old anchor (a thread's newest
+  row is the one that counts). The old master has such a row too, so the sweep
+  keeps it until it is nested and archives it on a later sweep, and archiving it
+  never takes the live master out of the thread panel. Only the grouping changes: orbs,
   models, rotation and billing stay as they are. The amp CLI
   cannot set a parent (`amp -x`, `amp -ox` and `amp threads new` have no parent
   option, and `amp threads export` has no parent field), so each thread the
   kitchen starts is recorded as nest-pending in `nest-pending.tsv` (and a
   `nest-pending` event), and the master nests it itself with its Amp thread
-  tool: `kitchen.sh nest <store>` lists the pending threads and prints the
+  tool. Every command that starts a thread (`spawn`, a rotation inside
+  `dispatch`, `consultant`, `verify`) prints the `nest-pending:` lines and the
+  instruction right after the start, so the master needs no `status` to learn of
+  it. `kitchen.sh nest <store>` lists the pending threads and prints the
   `update_thread(thread=<T>, parent_thread=<anchor>)` call to make for each
   (`parent_thread=null` for a row listed as `top-level`, the new master
   itself), and `kitchen.sh nest <store> --done <thread>...` marks them nested.
+  A thread with a pending row is never archived by a sweep (`threads --archive`,
+  `take-master`, `dispatch`, `verify --wait`, `close`): `update_thread` cannot set
+  a parent on an archived thread (it fails with an internal error), so the sweep
+  says `kept <thread>: nest pending` until `--done` closes the row. A pending
+  thread the registry already marks archived is listed as `(<role>, archived)`
+  with three calls to make: `update_thread(thread=<T>, archived=false)`, then the
+  parent call, then `update_thread(thread=<T>, archived=true)`. `--done` cannot
+  check the parent: neither `amp threads export` nor `get_thread_status`
+  carries a parent field, so mark a thread done only when `update_thread`
+  returned without an error and its result shows the expected parent.
   `kitchen.sh nest <store> --discover` first records the run's threads that have
   no row (a run migrated or started before nesting: the search `threads --discover`
   makes plus the threads and sessions the store names) and, when pair.json has no
