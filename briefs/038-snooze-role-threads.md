@@ -35,7 +35,7 @@ must not write:
 
 ## Steps
 
-Start from the rebased stack 037 leaves (main be882968 plus the run's units). The amp CLI cannot snooze: the master does it with its own `update_thread` tool, as it does the nesting, and the kitchen records what it did, as `nest-pending.tsv` does.
+Start from main daf51dc0 (`git checkout -B kitchen-followups-038 daf51dc09eeffc59c136c169e371c8641fcf8a99`), which holds 037. The amp CLI cannot snooze: the master does it with its own `update_thread` tool, as it does the nesting, and the kitchen records what it did, as `nest-pending.tsv` does.
 
 1. `commands/snooze.py`, modelled on `commands/nest.py` (its `rows()`, `stamp()`, `event()` use and its `nest`/`done` shape). A record `snooze.tsv` in the store, one row per change: `time, thread, role, state` with state `snoozed` or `awake`; the newest row of a thread is its state; append only, exactly 4 cells, so the `.tsv` union merge of bundles works. `SNOOZE = 'PSTACK_SNOOZE_ROLES'`; `enabled()` is True unless `os.environ.get(SNOOZE) == '0'`. `snoozable(store, thread, role)`, True only when all hold: role is not `master`; `amp.thread_state(amp.export(thread))[0] == 'idle'` (not working, not `error`, not `cancelled`, not unknown); no message or relay to it is pending — extract the outbox check and the relay check from `amp.assess` into one helper in mux/amp.py, `pending_to(store, thread, since)` returning the reason or '', and use it from both `assess` (unchanged behaviour) and `snoozable`; and, when the thread is a live role (`amp.live_threads`): the sidekick when `amp.role_is_idle(store, doc, 'sidekick')` and `reviews/<NNN-slug>.md` of the dispatched brief exists (accepted or rejected); the consultant when `amp.role_is_idle(store, doc, 'consultant')`; a verifier when `pair.json .verifying` is null. The candidates are the rows `kitchen.sh threads <store>` lists (the store's thread registry, the same function), not archived. Command `snooze <store>`: with `enabled()` false print `snooze: off (PSTACK_SNOOZE_ROLES=0)` and exit 0; else for each candidate that is snoozable and not recorded snoozed print `snooze: <T> (<role>)`, then one line `snooze: call update_thread(thread=<T>, snooze="indefinite") for each, then <prog> snooze <store> --done <thread>...`, or `snooze: nothing to snooze`. `--done <T>...` appends `snoozed` rows and a `snooze` event; `--wake <T>...` appends `awake` rows and a `wake` event; both refuse a thread the store's registry never named, as `nest --done` does. Tests: one parameterised table over the fake amp (state idle/working/error/cancelled x role sidekick-with-review/sidekick-without-review/consultant-with-open-consult/consultant-answered/verifier-verifying/verifier-done/master) -> listed or not; plus `PSTACK_SNOOZE_ROLES=0` lists nothing; plus `--done` then `--wake` leaves the thread awake and logs both events. Targeted check: `python3 tests/run.py -k snooze`.
 2. Wake before work, in mux/amp.py: `require_awake(store, thread)` raises a PairError subclass when `snooze.tsv` records the thread `snoozed`, with the message `snoozed: <T> is snoozed; call update_thread(thread=<T>, snooze="off"), then kitchen.sh snooze <store> --wake <T>, then run this again`. Call it where the kitchen continues an existing role thread (`Amp.with_bundle`, before anything is packed), and also wherever needed so that `dispatch`, `discuss`, `consult` and `steer` refuse before they record anything: a test dispatches to a snoozed sidekick and asserts the exit is non-zero, the message names `snooze="off"`, and `pair.json .dispatch` and the queue are unchanged; after `--wake` the same dispatch sends. The check applies whatever `PSTACK_SNOOZE_ROLES` says (a thread snoozed earlier still needs waking). A fresh thread (rotation, a new verifier) has no row and is never refused. Targeted check: `python3 tests/run.py -k snooze` and `python3 tests/run.py -k dispatch`.
@@ -78,6 +78,65 @@ uv check --frozen
 - No new amp CLI subcommand calls beyond the `export` the kitchen already makes.
 - No `time.sleep` in tests, and no elapsed-time asserts.
 - No push to main and no PR.
+
+## Playbook: feature + pstack-code (your parts)
+
+You own the working tree.
+
+Your parts:
+- testing: ## Testing Guidelines
+- style: ## Style
+- feature.intro-1: You own the implementation inside the brief's Scope; the master owns the design and the review. You 
+- feature.step-1: Read the Scope's files and the code they call before you edit. The design is the brief's: a design q
+- feature.step-4: Implement with a specific scope: file paths, the named data shape and its organizing structure per *
+- feature.step-5: 5. Verify on the matching surface. "Inconclusive" or wrong-surface is not a pass. Flag it.
+- feature.step-6: Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the 
+- feature.reply: In the report, under Ran and the sections the template names: what you built, what you chose and why
+
+### testing
+
+#### Testing Guidelines
+
+- `python3 scripts/check-pstack.py`, `python3 tests/run.py`, `uv lock --check`, `uv run --frozen ruff format --check`, `uv run --frozen ruff check` and `uv check --frozen` must pass before a commit; the suite runs once, on the host's `python3`. `tests/run.py` runs one process per test in parallel; `-k <text>` selects tests by id; `PSTACK_PAIR_UPDATE=1` regenerates the pair goldens, and a golden changes only when the transcript is meant to change.
+- Run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once per clone so `git blame` skips the format commit.
+- Commit a source change in the same commit as the test that pins it; the kitchen's `test-touch` policy refuses a step under `skills/pstack-pair` that changes source with no file under `tests/`.
+- `python3 tests/spec_gen.py --check` builds tests/SPEC.md without writing it and exits 1 when it is stale or a line has no test; a brief's Verify uses it in place of a regenerate.
+- Tests are deterministic: no sleeps and no elapsed-time asserts. Trigger a state change at a fixed point with the fake herdr hooks (`$FAKE/once/<subcommand>`, `$FAKE/report-after`) and assert on output.
+- Tests are hermetic: they scrub inherited `PSTACK_KITCHEN_*`, `KITCHEN_*`, `PAIR_*`, `HERDR_*`, `REX_*`, `PSTACK_MUX`, `AMP_THREAD_ID` and `AMP_CURRENT_THREAD_ID` variables, so a run inside a live kitchen gives the same result as one outside it.
+- Drive pair.sh and kitchen.sh by hand only against the fake herdr: put `tests/pstack-pair/bin` first on PATH and point XDG_STATE_HOME at a temp directory, as `tests/pstack-pair/scenario.sh` does (it unsets `PSTACK_KITCHEN_ROLE` and `PSTACK_KITCHEN_RUN`, which a verifier pane carries). `init`, `spawn`, `stop` and `close` against the real herdr register, rename or close the calling pane, so an agent that runs them there loses its own pane.
+
+### style
+
+#### Style
+
+- The entry scripts stay one exec line and `bash -n` clean; Python is stdlib-only, Python 3.11 or later.
+- Python is formatted and linted with the pinned ruff (`uv run --frozen ruff format`, `uv run --frozen ruff check`) and type-checked with `uv check --frozen`, which needs uv 0.12.3 or later. The tools are dev-only, in `pyproject.toml`'s dev group and `uv.lock`; the shipped scripts stay stdlib-only and import nothing from them. The 3.11 floor is held by ruff's `target-version` and ty's `python-version`.
+- Skill text: say what holds, in plain sentences; link with relative paths that `check-pstack.py` can resolve.
+- Name commits with Conventional Commits and a scope naming the skill or area (`fix(skills/pstack-kitchen): ...`, `test(tests): ...`). Keep commits atomic.
+
+### feature.intro-1
+
+You own the implementation inside the brief's Scope; the master owns the design and the review. You may delegate to a subagent on your roster model, within your role's limits.
+
+### feature.step-1
+
+Read the Scope's files and the code they call before you edit. The design is the brief's: a design question goes in the report under Questions, not into a design exploration of your own.
+
+### feature.step-4
+
+Implement with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain** (a state machine over scattered booleans, a table or registry over branching, a typed model over repeated shape assumptions), chosen before you write logic, and the brief's success criteria. You may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially. Comments per **Comments**. Surgical edits; re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally.
+
+### feature.step-5
+
+5. Verify on the matching surface. "Inconclusive" or wrong-surface is not a pass. Flag it.
+
+### feature.step-6
+
+Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Use the **sequence-verifiable-units** principle skill, building, verifying, and committing each small unit before the next.
+
+### feature.reply
+
+In the report, under Ran and the sections the template names: what you built, what you chose and why, and open decisions. Tables for design alternatives. Every claim carries its command output or a file pointer.
 
 ## Report
 
