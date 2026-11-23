@@ -78,3 +78,7 @@
 2026-11-23T21:05:51Z	1795467951	master	wake	038-snooze-role-threads	verify:reject
 2026-11-23T21:06:00Z	1795467960	master	log	-	verify-038: 038 reject: half-sent plan round (= joo medium), already brief 043 step 2; no separate revise brief
 2026-11-23T21:23:08Z	1795468988	master	send-verify	042-roster-relay-path	claude:042
+2026-11-23T21:23:19Z	1795468999	master	nest-pending	-	T-01a20a4a-b17c-7023-b3a7-9a778f04d274 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T21:23:28Z	1795469008	master	wake	042-roster-relay-path	verify:progress
+2026-11-23T21:23:38Z	1795469018	master	nest	-	T-01a20a4a-b17c-7023-b3a7-9a778f04d274 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T21:23:44Z	1795469024	master	reuse	043-snooze-role-threads-fix	sidekick: pstack, pstack-docs, context 47%
