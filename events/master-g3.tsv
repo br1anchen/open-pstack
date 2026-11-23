@@ -67,3 +67,4 @@
 2026-11-23T20:51:24Z	1795467084	master	wake	038-snooze-role-threads	verify:progress
 2026-11-23T20:51:58Z	1795467118	master	nest	-	T-01a20a2d-4712-70f9-b88d-f3bf687500f7 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-23T20:52:04Z	1795467124	master	reuse	042-roster-relay-path	sidekick: pstack, pstack-docs, context 44%
+2026-11-23T20:52:11Z	1795467131	master	send-brief	042-roster-relay-path	
