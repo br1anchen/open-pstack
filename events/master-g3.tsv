@@ -45,3 +45,6 @@
 2026-11-21T15:35:18Z	1795275318	master	log	-	land-2: pushed daf51dc0 to main (be882968..daf51dc0, 47 commits: 004-006, 022-026, 028, 030-037)
 2026-11-21T15:50:45Z	1795276245	master	log	-	plan: s4-hero feedback: 040 nest-every-start (items 1-4); items 5-6 into 041 with joo mediums
 2026-11-23T20:02:18Z	1795464138	master	send-steer	039-roster-handoff-fix-s1	idle
+2026-11-23T20:02:46Z	1795464166	master	log	-	incident: sidekick g16 ended its turn on 039 at 15:53 with step fc6d096b gates still running; no step, no report
+2026-11-23T20:11:55Z	1795464715	master	log	-	plan: plan 041 verifier-lands queued last (escalated, plan round)
+2026-11-23T20:14:08Z	1795464848	master	send-verify	039-roster-handoff-fix	claude:010 039

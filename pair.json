@@ -89,7 +89,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:4",
+    "pane_id": "amp:5",
     "kind": "claude",
     "started_at": null
   },
@@ -109,7 +109,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "039-roster-handoff-fix-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "title": "kitchen-followups master",
@@ -309,5 +311,35 @@
   "landing": {
     "parent": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "parent_ref": "be882968"
+  },
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/039-roster-handoff-fix-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/039-roster-handoff-fix-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/039-roster-handoff-fix.md",
+    "scratch": "039-roster-handoff-fix-verify",
+    "units": "010 039",
+    "risk": "escalated",
+    "sample": 1.0,
+    "unit": "039-roster-handoff-fix",
+    "started": 1795464848,
+    "deadline": 1795467548,
+    "class": "escalated",
+    "entry": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "claude-opus-5-5"
+      ],
+      "fallback": null,
+      "fallbacks": [],
+      "source": "default"
+    },
+    "retried": false,
+    "argv": [
+      "039",
+      "--covers",
+      "010"
+    ],
+    "delivered": false
   }
 }
