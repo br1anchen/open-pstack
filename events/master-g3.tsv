@@ -97,3 +97,5 @@
 2026-11-23T22:04:28Z	1795471468	master	archive	-	verifier:T-01a20a4a-b17c-7023-b3a7-9a778f04d274
 2026-11-23T22:04:28Z	1795471468	master	log	-	archive: archive verifier T-01a20a4a-b17c-7023-b3a7-9a778f04d274
 2026-11-23T22:04:35Z	1795471475	master	rotate	-	generation:16
+2026-11-23T22:04:45Z	1795471485	master	nest-pending	-	T-01a20a70-a13e-7108-b446-3b81278c27ce under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T22:04:51Z	1795471491	master	spawn	-	sidekick:amp:handed-off
