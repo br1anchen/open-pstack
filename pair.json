@@ -72,10 +72,10 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "16",
+      "generation": "17",
       "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "042-roster-relay-path",
+      "brief": "044-roster-relay-repo",
       "compactions": 0
     },
     "failovers": [
@@ -109,9 +109,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "043-snooze-role-threads-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "title": "kitchen-followups master",
@@ -287,7 +285,8 @@
       "T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b",
       "T-01a1fc96-a756-7134-b4a6-ebdd6834c821",
       "T-01a1fd7d-661d-771a-8ca6-a91dc35eb807",
-      "T-01a1fe59-398e-71cb-8cac-577e8fe343df"
+      "T-01a1fe59-398e-71cb-8cac-577e8fe343df",
+      "T-01a20a70-a13e-7108-b446-3b81278c27ce"
     ],
     "amp openai/gpt-6.1-sol": [
       "T-01a1fe11-b0bf-7159-b82b-350daed39eb8"
@@ -319,36 +318,5 @@
   "landing": {
     "parent": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "parent_ref": "be882968"
-  },
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/043-snooze-role-threads-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/043-snooze-role-threads-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/043-snooze-role-threads-fix.md",
-    "scratch": "043-snooze-role-threads-fix-verify",
-    "units": "038 043",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "043-snooze-role-threads-fix",
-    "started": 1795471397,
-    "deadline": 1795474097,
-    "class": "escalated",
-    "entry": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "claude-opus-5-5"
-      ],
-      "fallback": null,
-      "fallbacks": [],
-      "source": "default"
-    },
-    "retried": false,
-    "argv": [
-      "043",
-      "--covers",
-      "038"
-    ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-043-snooze-role-threads-fix-verify/T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8.jsonl"
   }
 }
