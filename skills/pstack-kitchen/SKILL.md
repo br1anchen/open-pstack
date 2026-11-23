@@ -483,10 +483,14 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
     only where that orb has no roster, keeps and names a different one, and
     never prints either. The host roster stays on the host, so under the git
     store the snapshot is a local-only file the branch ignores: `rotate-master`
-    prints a `relay: upload_thread_file` line, the old master uploads the
-    file to the next master's thread before ending its turn, and
-    `take-master` continues with its own roster, saying `did not arrive`, when
-    it is not there. Under the local store the bundle carries it.
+    prints a `relay: upload_thread_file` line whose destination is the
+    repo-relative `.git/pstack-roster-g<n>.toml` (the next orb keeps its store
+    at a path of its own), and the old master makes that upload before ending
+    its turn. `take-master` waits at most `KITCHEN_TAKEOVER_WAIT_S` (30 s by
+    default) for the old master's turn to end, then moves the uploaded file from
+    the repository's `.git` into the store and installs it; when it is not
+    there, `take-master` continues with its own roster, saying `did not arrive`.
+    Under the local store the bundle carries it.
 
   The cost to optimize is latency, not money: an idle orb pauses after five
   minutes and costs nothing while paused, and a start costs about a cent at
