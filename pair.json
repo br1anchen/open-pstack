@@ -11,9 +11,9 @@
     "tab_id": "",
     "registered_at": "2026-11-21T14:22:42Z",
     "permission_mode": "auto",
-    "units_since_handoff": 1,
+    "units_since_handoff": 2,
     "generation": 3,
-    "landed_since_handoff": false,
+    "landed_since_handoff": true,
     "sessions": [
       {
         "generation": 1,
@@ -170,6 +170,14 @@
     {
       "path": "/home/user/workspace/repo/skills",
       "at": "2026-11-21T15:04:14Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/main-daf51dc0/skills",
+      "at": "2026-11-21T15:35:14Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-23T20:02:17Z"
     }
   ],
   "placement": "split",

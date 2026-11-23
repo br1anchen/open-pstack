@@ -34,3 +34,10 @@
 - bundle.py:173 (medium, regression): with origin unreachable the bundle is cut at a stale origin ref instead of carrying every commit; the receiver's fallback `git fetch origin` (bundle.py:546) is unbounded.
 - bundle.py:258 (medium, regression): an ordinary send with evidence refs is cut against the sender's --remotes, which a receiver may lack, so local-only evidence is lost.
 - nest.py:175 / nest.py:194 (low): run_threads re-adds archived threads; discover's record_pending falls back to anchor()'s oldest master when current_master finds none.
+
+## s4-hero-1258 master feedback (T-01a1feab-6ada-7110-87cc-63c074d88bde, 2026-11-21)
+
+- Items 1-4 (nesting: starts print no nest lines, archived threads cannot take a parent, take-master nests under the old master, `nest --done` unchecked): brief 040 nest-every-start.
+- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 041, the joo-mediums fix; one rule for when rotation_required is set and cleared.
+- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 041 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
+- `feedback` with no registered maintainer delivers nowhere useful (the report reached this run only by a thread message): retro feedback.

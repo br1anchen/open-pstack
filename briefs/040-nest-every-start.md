@@ -1,0 +1,105 @@
+# Brief 040: nest-every-start
+
+playbook: bug-fix
+timebox: 90
+commit: yes, one commit per step, each recorded with kitchen.sh step
+plan: none
+risk: routine
+profiles: pstack, pstack-docs
+verify: batch by routine verifier
+review-engine: joo
+steps: none
+standing: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/standing-orders.md
+report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/040-nest-every-start.md
+
+## Goal
+
+Under Amp threads every role thread a run starts ends up nested under the current anchor without the master having to run `status`: each command that starts a thread prints the `nest:` instructions, a thread with a pending nest row is not archived, take-master re-parents every thread of the run (previous masters included) to the new anchor, and `nest` tells the master how to nest a thread that is already archived.
+
+## Scope
+
+may write:
+- skills/pstack-pair/scripts/pstack_core/commands/nest.py
+- skills/pstack-pair/scripts/pstack_core/mux/amp.py
+- skills/pstack-kitchen/SKILL.md
+- skills/pstack-kitchen/references/master.md
+- tests/test_pstack_kitchen.py
+- tests/SPEC.md
+- tests/pstack-pair/bin/amp
+
+must not write:
+- anything else
+
+## Steps
+
+Start from main daf51dc0 (`git checkout -B kitchen-followups-040 daf51dc09eeffc59c136c169e371c8641fcf8a99`). Each step first adds the failing test that reproduces the report, then the fix.
+
+1. Starts print the nest lines. Every thread the kitchen starts is recorded in one place, `amp.record_started` (mux/amp.py, it calls `nest.record_pending`). Split `nest()`'s listing (the `nest-pending:` lines and the `nest: call update_thread(...)` instruction) into one function `nest.instructions(store, prog)` returning the text, used by `nest()` unchanged, and print it on stdout right after a start records a new pending row. Test: one table over spawn, a rotation inside dispatch, consultant and verify under the fake amp: each command's output ends with the `nest-pending: <T>` line and the `update_thread` instruction for the thread it started. Targeted check: `python3 tests/run.py -k nest`.
+2. A pending nest row keeps the thread. In `amp.assess`, a thread with a pending row in `nest.pending(store)` returns `kept: nest pending (nest it first; update_thread cannot set a parent on an archived thread)` before the archive decisions, so the sweep (`threads --archive`, take-master, dispatch, verify --wait, close) never archives it while pending; once `nest --done` closes the row the sweep archives it as today. In `nest()`, a pending thread the thread registry already marks archived (`threads.json` `archived`, as `run_threads` reads it) is listed with `, archived` and the instruction `update_thread(thread=<T>, archived=false)`, then the parent call, then `update_thread(thread=<T>, archived=true)`. Tests: the sweep keeps a verifier with a pending row and archives it after `--done`; an archived pending thread gets the three-call instruction. Targeted check: `python3 tests/run.py -k nest` and `python3 tests/run.py -k archive`.
+3. take-master re-parents the whole run. `nest.take_anchor` adds a pending row under the new anchor for every thread of the run, not only live roles: `run_threads(store)` without dropping archived ones, plus every previous master (`.anchor.previous` and `.master.sessions` threads), each with its role. Rows under the old anchor are superseded by the newer row (`pending()` already keeps the newest row per thread; add a test that proves it). Test: a store with two earlier generations (masters, verifiers, an archived sidekick) after take-master lists every one of them under the new master, and none under an old master. Targeted check: `python3 tests/run.py -k take_master` and `python3 tests/run.py -k anchor`.
+4. `nest --done` and what it can check: read the fake amp and the real `amp threads export --help` output on your orb: if the export carries a parent field, `--done` refuses a thread whose parent differs from its row's anchor (`not nested yet: <T> has parent <P>, expected <anchor>`); if it does not, change nothing in code and the docs say to mark a thread done only when update_thread's result shows the expected `parentThreadID`. Say in the report which one held, with the command output.
+5. Docs: SKILL.md's nesting bullet and master.md step 5's nest sentence: starts print the instructions; a pending row keeps a thread from the sweep; the archived three-call sequence; take-master re-parents every earlier thread and master; how `--done` is checked. Regenerate tests/SPEC.md. Targeted check: `python3 scripts/check-pstack.py` and `python3 tests/spec_gen.py --check`.
+
+## Context
+
+- Feedback from the s4-hero-1258 master (thread T-01a1feab-6ada-7110-87cc-63c074d88bde, chenchess, Amp threads, local store), items 1-4: four threads started after take-master stayed top-level because only `status` shows `nest-pending`; `update_thread(parent_thread=...)` on an archived thread fails with "An internal error occurred" (reproduced on 15 threads; unarchive, parent, re-archive works); take-master listed earlier verifiers under the old archived master; `nest --done` recorded three threads whose update_thread had failed. This run's master saw the same internal error on three idle archived-looking sidekick threads.
+- Code: nest.py (`take_anchor`, `record_pending`, `add_pending`, `pending`, `nest`, `done`, `run_threads`, `discover`), mux/amp.py `record_started` (about line 325) and `assess`.
+
+## Acceptance
+
+- spawn, a rotation, consultant and verify under Amp each print the started thread's `nest-pending:` line and the update_thread instruction.
+- The archive sweep keeps a thread whose nest row is pending, with `kept: nest pending`, and archives it after `nest --done`.
+- `nest` lists an archived pending thread with the unarchive, parent, re-archive calls.
+- After take-master every earlier thread of the run, previous masters included, is pending under the new anchor and none under an old one.
+- The report states whether `--done` can check the parent, with evidence; code or docs follow it.
+- Existing nest, anchor and archive tests pass; check-pstack and spec_gen --check pass.
+
+## Verify
+
+```bash
+python3 tests/run.py -k nest
+python3 tests/run.py -k archive
+python3 tests/run.py -k take_master
+python3 tests/run.py -k anchor
+python3 tests/run.py
+python3 scripts/check-pstack.py
+python3 tests/spec_gen.py --check
+uv run --frozen ruff format --check
+uv run --frozen ruff check
+uv check --frozen
+```
+
+## Forbidden
+
+- No `time.sleep` in tests, and no elapsed-time asserts.
+- No push to main and no PR.
+
+## Report
+
+Work the Steps in order. End each in a commit and record it with
+`kitchen.sh step /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups <sha> "<what it does>"`: it runs the touched
+profiles' fast gates and the repo's policy check, and records the step only
+when they pass. When it exits 4 with `gates: still running`, the step is not
+recorded: run the same command again at once, in the foreground, and keep
+going until it records; never end your turn on it. On a failure, fix it in a
+new commit and run `kitchen.sh step` again with that commit; it tells you when
+two failures in a row make this a blocked report. At each step boundary run `kitchen.sh notes /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`kitchen.sh progress /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups "<line>"`. When any `kitchen.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Before reporting done, run the review skills the
+kitchen's `review.self` names on your diff. Write the report file named above
+using the pstack-pair report template, then run
+`~/.agents/skills/pstack-kitchen/scripts/kitchen.sh finish /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups <report path>`
+and do what it prints. For a done report, finish first reruns the Verify
+commands above at the report's head:, with the checkout at that commit and
+nothing uncommitted, and sends the report only when every one exits 0; exit 4
+means they are still running, so run the same finish again at once.
+
+## Lessons
+
+Trouble this area met in earlier runs (kitchen.py lessons). Follow each; the
+verifier checks them and reports each one held or hit.
+
+- L012 (gate-fail pstack "fast uv check --frozen", layer gate, in skills, active 2026-10-26T22:54:02Z): Check every Optional a stdlib call returns (re.match, spec_from_file_location, spec.loader) for None before use, and run uv check --frozen before kitchen.sh step.
