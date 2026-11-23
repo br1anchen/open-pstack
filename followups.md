@@ -55,3 +55,7 @@
 
 - master.py:559 (medium): take-master finds the upload through `repo_of(store)`, which reads the published pair.json's old paths: fix brief 044 roster-relay-repo before landing 010/039/042.
 - 042 test keeps the store at the old master's path (report Deviations); 044's test covers a different checkout path.
+
+## 043 (joo 2026-11-23T22-03-17-839Z-801d9887)
+
+- snooze.py:181 (medium): `--done` checks eligibility after update_thread already snoozed the thread; on refusal the thread is snoozed in Amp but recorded awake. Fix: the refusal tells the master to undo it (`update_thread(thread=<T>, snooze="off")`), or `--done` records what was done and prints the warning. Brief 045 (snooze isn't used in this run until then).

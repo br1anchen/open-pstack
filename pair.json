@@ -67,7 +67,7 @@
       "model:claude-sonnet-5-5"
     ],
     "generation": 17,
-    "bootstrap_pending": true,
+    "bootstrap_pending": false,
     "permission_mode": "native-args",
     "closed": false,
     "rotation_required": false,
@@ -85,8 +85,7 @@
         "reason": "Amp credit balance low: GLM sidekick g14 cannot run",
         "at": "2026-11-21T12:25:27Z"
       }
-    ],
-    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/043-snooze-role-threads-fix.md"
+    ]
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -185,21 +184,21 @@
   ],
   "placement": "split",
   "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/043-snooze-role-threads-fix.md"
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/044-roster-relay-repo.md"
   ],
   "dispatch": {
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/043-snooze-role-threads-fix.md",
-    "at": "2026-11-23T21:23:51Z",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/044-roster-relay-repo.md",
+    "at": "2026-11-23T22:06:14Z",
     "head": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
-    "generation": 16,
+    "generation": 17,
     "sidekick": "amp claude-code claude-sonnet-5-5",
     "report_order": 0
   },
   "sent": {
-    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/043-snooze-role-threads-fix.md",
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/044-roster-relay-repo.md",
     "kind": "BRIEF",
-    "at": "2026-11-23T21:23:51Z",
-    "epoch": 1795469031
+    "at": "2026-11-23T22:06:14Z",
+    "epoch": 1795471574
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -232,7 +231,8 @@
     "039-roster-handoff-fix": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "038-snooze-role-threads": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "042-roster-relay-path": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
-    "043-snooze-role-threads-fix": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf"
+    "043-snooze-role-threads-fix": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
+    "044-roster-relay-repo": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf"
   },
   "sidekick_models": {
     "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
@@ -265,7 +265,8 @@
     "039-roster-handoff-fix": "amp claude-code claude-sonnet-5-5",
     "038-snooze-role-threads": "amp claude-code claude-sonnet-5-5",
     "042-roster-relay-path": "amp claude-code claude-sonnet-5-5",
-    "043-snooze-role-threads-fix": "amp claude-code claude-sonnet-5-5"
+    "043-snooze-role-threads-fix": "amp claude-code claude-sonnet-5-5",
+    "044-roster-relay-repo": "amp claude-code claude-sonnet-5-5"
   },
   "sidekick_threads": {
     "amp anthropic/claude-sonnet-5-5": [
