@@ -14860,6 +14860,199 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn((second, 'master', '-', 'pending'), self.nest_rows())
         self.assertNotIn(first, [row[0] for row in self.nest_rows()])
 
+    SNOOZE_LINE = re.compile(r'(?m)^snooze: (T-\S+) \((\w+)\)$')
+
+    def snooze_listed(self):
+        """[(thread, role)] that `kitchen.sh snooze` lists, with every thread but those named in `idle` busy."""
+        return self.SNOOZE_LINE.findall(self.run_sh('snooze', str(self.store)))
+
+    def snooze_world(self, states):
+        """Every thread the store names is working, but for those states gives: {thread: state}."""
+        for thread in self.threads_json():
+            self.set_state(thread, 'tool_use')
+        for thread, state in states.items():
+            self.set_state(thread, state, '2999-01-01T00:00:00.000Z')
+
+    def review_unit(self, reviewed):
+        """The sidekick's dispatched unit 001-util is done, and its review note exists when `reviewed`."""
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.done(b, 'abc')
+        doc = self.state()
+        doc['dispatch'] = {'brief': str(b)}
+        doc['sidekick']['rotation_required'] = True
+        self.edit_pair(**doc)
+        review = self.store / 'reviews' / b.name
+        review.parent.mkdir(exist_ok=True)
+        review.unlink(missing_ok=True)
+        if reviewed:
+            review.write_text('verdict: accept\n')
+
+    def test_snooze_lists_exactly_the_role_threads_that_are_idle_with_nothing_open(
+        self,
+    ):
+        sidekick, consultant, old_master = amp_thread(1), amp_thread(2), amp_thread(9)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        here = os.path.realpath(self.store)
+        self.write_threads(
+            {
+                **self.threads_json(),
+                old_master: {'name': 'demo-master', 'role': 'master', 'store': here, 'started': 1},
+            }
+        )  # fmt: skip
+        self.assertEqual(self.threads_json()[consultant]['role'], 'consultant')
+        with self.subTest(
+            'a verifier is listed once it is done, never while it verifies'
+        ):
+            self.verify_started('001')
+            verifier = amp_thread(3)
+            self.snooze_world({sidekick: 'tool_use', verifier: 'idle'})
+            self.assertEqual(self.snooze_listed(), [])
+            doc = self.state()
+            doc['verifying'] = None
+            self.edit_pair(**doc)
+            self.assertEqual(self.snooze_listed(), [(verifier, 'verifier')])
+            self.snooze_world({})
+        # (what is open, the states of the sidekick and of the consultant, what the master lists)
+        for label, reviewed, consult, states, listed in (
+            ('both settled', True, False, ('idle', 'idle'), [(sidekick, 'sidekick'), (consultant, 'consultant')]),
+            ('the sidekick is working', True, False, ('tool_use', 'idle'), [(consultant, 'consultant')]),
+            ('the sidekick is in error', True, False, ('error', 'idle'), [(consultant, 'consultant')]),
+            ('the sidekick was cancelled', True, False, ('cancelled', 'idle'), [(consultant, 'consultant')]),
+            ('the sidekick unit has no review', False, False, ('idle', 'idle'), [(consultant, 'consultant')]),
+            ('a consult waits for advice', True, True, ('idle', 'idle'), [(sidekick, 'sidekick')]),
+            ('the consultant is in error', True, False, ('idle', 'error'), [(sidekick, 'sidekick')]),
+        ):  # fmt: skip
+            with self.subTest(label):
+                (self.store / 'events.tsv').write_text(
+                    ''.join(
+                        l + '\n'
+                        for l in (self.store / 'events.tsv').read_text().splitlines()
+                        if '\tsend-consult\t' not in l
+                    )
+                )
+                self.review_unit(reviewed)
+                if consult:
+                    with (self.store / 'events.tsv').open('a') as f:
+                        f.write('1\tmaster\tsend-consult\t001-util-c1\tdesign\n')
+                self.snooze_world(
+                    {sidekick: states[0], consultant: states[1], old_master: 'idle'}
+                )
+                self.assertEqual(self.snooze_listed(), listed)
+        with self.subTest('PSTACK_SNOOZE_ROLES=0 lists none'):
+            self.env['PSTACK_SNOOZE_ROLES'] = '0'
+            self.assertEqual(
+                self.run_sh('snooze', str(self.store)),
+                'snooze: off (PSTACK_SNOOZE_ROLES=0)\n',
+            )
+
+    def test_snooze_done_and_wake_record_each_change_log_it_and_refuse_a_thread_the_store_never_named(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        out = self.run_sh('snooze', str(self.store), '--done', 'T-nope', code=1)
+        self.assertIn('not recorded for snoozing: T-nope', out)
+        self.assertFalse((self.store / 'snooze.tsv').exists())
+        self.assertEqual(
+            self.run_sh('snooze', str(self.store), '--done', sidekick, sidekick),
+            f'snoozed: {sidekick}\n',
+        )
+        self.assertEqual(
+            self.run_sh('snooze', str(self.store), '--done', sidekick),
+            f'snoozed: {sidekick} (already)\n',
+        )
+        self.assertEqual(
+            self.run_sh('snooze', str(self.store), '--wake', sidekick),
+            f'awake: {sidekick}\n',
+        )
+        rows = [
+            line.split('\t')[1:]
+            for line in (self.store / 'snooze.tsv').read_text().splitlines()
+        ]
+        self.assertEqual(
+            rows, [[sidekick, 'sidekick', 'snoozed'], [sidekick, 'sidekick', 'awake']]
+        )
+        events = [
+            line.split('\t')[3:]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tsnooze\t' in line or '\twake\t' in line
+        ]
+        self.assertEqual(events, [['snooze', '-', sidekick], ['wake', '-', sidekick]])
+
+    def test_a_snoozed_role_thread_refuses_dispatch_consult_and_steer_until_it_is_woken(
+        self,
+    ):
+        sidekick, consultant = amp_thread(1), amp_thread(2)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        steer = Path(self.run_sh('new-steer', str(self.store), '001').strip())
+        steer.write_text(
+            '# Steer\n\nkind: info\nscope effect: none\n\n## Direction\n\ngo on\n'
+        )
+        consult = Path(
+            self.run_sh(
+                'new-consult', str(self.store), '001', '--kind', 'design'
+            ).strip()
+        )
+        consult.write_text(
+            re.sub(r'\{\{[^}]*\}\}', 'x', consult.read_text(), flags=re.DOTALL)
+        )
+        self.run_sh('snooze', str(self.store), '--done', sidekick, consultant)
+        pair, queue = self.state(), (self.store / 'queue').exists()
+        for label, args in (
+            ('dispatch', ('dispatch', str(b))),
+            ('steer', ('steer', str(steer))),
+            ('consult', ('consult', str(consult))),
+        ):
+            with self.subTest(label):
+                thread = consultant if label == 'consult' else sidekick
+                out = self.run_sh(args[0], str(self.store), *args[1:], code=5)
+                self.assertIn(
+                    f'snoozed: {thread} is snoozed; call update_thread(thread={thread}, snooze="off"), '
+                    f'then kitchen.sh snooze {self.store} --wake {thread}, then run this again',
+                    out,
+                )
+                self.assertEqual(self.state(), pair)
+                self.assertEqual((self.store / 'queue').exists(), queue)
+        self.assertEqual(self.briefs_in(sidekick), [])
+        # PSTACK_SNOOZE_ROLES=0 stops new snoozing only: a thread snoozed earlier still needs waking.
+        self.env['PSTACK_SNOOZE_ROLES'] = '0'
+        self.run_sh('dispatch', str(self.store), str(b), code=5)
+        self.run_sh('snooze', str(self.store), '--wake', sidekick)
+        self.dispatch(b)
+        self.assertEqual(len(self.briefs_in(sidekick)), 1)
+
+    def test_status_names_the_role_threads_due_for_snoozing_and_a_role_in_error_for_the_human(
+        self,
+    ):
+        sidekick, consultant = amp_thread(1), amp_thread(2)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.review_unit(True)
+        self.snooze_world({sidekick: 'idle', consultant: 'error'})
+        out = self.run_sh('status', str(self.store))
+        self.assertIn(
+            f'snooze-due: 1 role thread; run kitchen.sh snooze {self.store}\n', out
+        )
+        self.assertIn(
+            f'needs-human: consultant {consultant} (error); relay it to the human from the master thread\n',
+            out,
+        )
+        self.env['PSTACK_SNOOZE_ROLES'] = '0'
+        out = self.run_sh('status', str(self.store))
+        self.assertNotIn('snooze-due:', out)
+        self.assertIn(f'needs-human: consultant {consultant} (error)', out)
+        self.env.pop('PSTACK_SNOOZE_ROLES')
+        self.run_sh('snooze', str(self.store), '--done', sidekick)
+        self.assertNotIn('snooze-due:', self.run_sh('status', str(self.store)))
+
     def test_nest_asks_the_named_thread_when_nest_via_is_set(self):
         self.three_pending()
         self.env['PSTACK_NEST_VIA'] = 'T-via'
