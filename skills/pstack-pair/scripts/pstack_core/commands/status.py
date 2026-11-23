@@ -26,7 +26,7 @@ from ..store import (
     text_at,
     unit_name,
 )
-from . import nest
+from . import nest, snooze
 
 
 class Tee:
@@ -168,6 +168,7 @@ def lines(ctx, store, out):
                 f'relay-pending: {record["id"]} for {record["name"]} since {since}\n'
             )
     out.write(nest.status_line(store))
+    out.write(snooze.status_lines(store))
     scratch = [w for line in names(pair, 'scratch') for w in line.split()]
     if scratch:
         out.write(

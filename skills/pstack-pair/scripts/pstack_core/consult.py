@@ -13,7 +13,7 @@ from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed, Unfilled
 from .gates import require_not_paused
-from .mux import DEVNULL, STALLED, TIMEOUT
+from .mux import DEVNULL, STALLED, TIMEOUT, amp
 from .panes import agent_status, await_file, require_mux
 from .review import require_filled
 from .send import require_fresh_session, submit_typed
@@ -335,6 +335,7 @@ def stamp_send_state(store, path):
 def require_consultant_idle(store):
     """The consultant's name, once it is live and idle or done; a consult to one that is absent, blocked or working is refused with its own exit code."""
     name = field(store, 'consultant', 'name')
+    amp.require_awake(store, mux.get().role_thread(name))
     status = agent_status(name)
     if status == 'absent':
         raise AgentNotLive(

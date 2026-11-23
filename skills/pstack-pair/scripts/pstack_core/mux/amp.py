@@ -529,6 +529,40 @@ def role_is_idle(store, doc, role):
     return role == 'consultant' and not open_consults(store)
 
 
+def pending_to(store, thread, since):
+    """Why the settled thread, whose state is `since` old, still has work coming: a message sent to it that its turn has not ended since, or a
+    steer relay waiting for the master. '' when it has none."""
+    sent = load_json(outbox_path()).get(thread)
+    if isinstance(sent, dict) and not since >= int(sent.get('at') or 0):
+        return 'a message to it is still pending (its turn has not ended since)'
+    for record in relay_records(store):
+        if (
+            record.get('thread') == thread
+            and record.get('state') == PENDING
+            and not since >= int(record.get('at') or 0)
+        ):
+            return 'a relay to it is still pending'
+    return ''
+
+
+class Snoozed(PairError):
+    """The thread is snoozed: the master unsnoozes it, then records that, before the kitchen sends it work."""
+
+    code = 5
+
+
+def require_awake(store, thread):
+    """Raises Snoozed when the store's snooze.tsv records the thread snoozed. Whatever PSTACK_SNOOZE_ROLES says, a thread snoozed earlier still
+    needs waking; a thread with no row, as a fresh one has, is never refused."""
+    from ..commands import snooze
+
+    if thread and snooze.state_of(store, thread) == snooze.SNOOZED:
+        raise Snoozed(
+            f'snoozed: {thread} is snoozed; call update_thread(thread={thread}, snooze="off"), '
+            f'then kitchen.sh snooze {store} --wake {thread}, then run this again'
+        )
+
+
 def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
     """(the thread's state, why it must not be archived yet; with `reconcile`, the master first settles the store branch's pending requests and
     relays for the thread against its export, amp_routing.reconcile): '' when the store no longer uses it and nothing it did is unread. A thread in a turn,
@@ -559,16 +593,8 @@ def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
         return state, f'working ({state}): it is in a turn'
     if why := amp_routing.kept_by_branch(store, thread, role, tip):
         return state, why
-    sent = load_json(outbox_path()).get(thread)
-    if isinstance(sent, dict) and not since >= int(sent.get('at') or 0):
-        return state, 'a message to it is still pending (its turn has not ended since)'
-    for record in relay_records(store):
-        if (
-            record.get('thread') == thread
-            and record.get('state') == PENDING
-            and not (state in SETTLED and since >= int(record.get('at') or 0))
-        ):
-            return state, 'a relay to it is still pending'
+    if why := pending_to(store, thread, since):
+        return state, why
     files = unsynced_files(role)
     if files:
         return state, f'it sent {files[0]}, which the master store does not hold yet'
@@ -1162,6 +1188,8 @@ class Amp(Subagents):
         self.skipped = ''
         created = not thread
         store = store or store_in(text) or load(self.path()).get('store') or ''
+        if store and thread:
+            require_awake(store, thread)
         if store:
             self.remember_store(name, store)
         message = text
@@ -1279,6 +1307,8 @@ class Amp(Subagents):
         made anew. ({'size': bytes}, 'too-large') when the bundle is over upload_thread_file's limit; (None, '') when there is nothing to relay with."""
         found = self.entry(name)
         thread = (found[1].get('thread') or '') if found else ''
+        if store:
+            require_awake(store, thread)
         repo = bundle.repo_of(store) if store else ''
         if not thread or not repo or not os.path.isdir(os.path.join(repo, '.git')):
             return None, ''

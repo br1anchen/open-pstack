@@ -24,7 +24,7 @@ from .errors import (
     refuse_as,
 )
 from .gates import check_scope, require_not_paused
-from .mux import DEVNULL, STALLED, TIMEOUT
+from .mux import DEVNULL, STALLED, TIMEOUT, amp
 from .numbers import env_float
 from .panes import agent_kind, agent_status, require_mux
 from .replies import first3, pending, queued_brief
@@ -175,8 +175,9 @@ def send_message(ctx, store, file, kind, now=None):
     pair = load(store)
     if kind == 'BRIEF':
         check_scope(file, text_at(pair, 'git_root') or text_at(pair, 'cwd'))
-    require_fresh_session(store)
     name = text_at(peek(pair, 'sidekick'), 'name')
+    amp.require_awake(store, mux.get().role_thread(name))
+    require_fresh_session(store)
     status = agent_status(name)
     if status == 'working' and not took_a_brief(pair):
         status = wait_out_ready_turn(name)

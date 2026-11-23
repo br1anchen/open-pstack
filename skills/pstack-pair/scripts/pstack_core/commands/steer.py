@@ -8,7 +8,7 @@ from .. import mux
 from ..argv import Spec, read
 from ..checkin import live_steer_effects, scope_effect_form_ok, sidekick_busy
 from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
-from ..mux import DEVNULL
+from ..mux import DEVNULL, amp
 from ..panes import agent_status, require_mux
 from ..prime import prime_steer
 from ..replies import file_mtime, sent_epoch
@@ -289,6 +289,7 @@ def steer(ctx, args):
     check_steer_file(ctx, steer_path)
     require_pair(ctx, store)
     name = field(store, 'sidekick', 'name')
+    amp.require_awake(store, mux.get().role_thread(name))
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'
     if status == 'working':
