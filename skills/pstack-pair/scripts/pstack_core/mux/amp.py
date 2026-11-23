@@ -363,8 +363,8 @@ def record_started(thread, name, store, created):
     if role_of(name) == 'master':
         if os.path.isfile(f'{store}/pair.json'):
             nest.anchor(store, thread)
-    else:
-        nest.record_pending(store, thread, role_of(name))
+    elif nest.record_pending(store, thread, role_of(name)):
+        sys.stdout.write(nest.instructions(store, nest.process_prog()))
     record_thread(
         thread,
         {

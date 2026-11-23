@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from ..errors import Die
 from ..store import event, listing, load, member, pair_file, peek, text_at, update
+from ..variant import load_variant_class
 
 TSV = 'nest-pending.tsv'
 PENDING, NESTED = 'pending', 'nested'
@@ -201,22 +202,24 @@ def stamp():
 
 
 def record_pending(store, thread, role):
-    """A thread the kitchen started for the run: one pending row and a `nest-pending` event, unless it is the anchor or already has a row."""
+    """A thread the kitchen started for the run: one pending row and a `nest-pending` event, unless it is the anchor or already has a row.
+    Whether a row was added."""
     if not os.path.isfile(f'{store}/pair.json'):
-        return
+        return False
     here = anchor(store, thread)
     if not here or thread == here:
-        return
-    add_pending(store, thread, role, here)
+        return False
+    return add_pending(store, thread, role, here)
 
 
 def add_pending(store, thread, role, parent):
-    """A pending row for `thread` under `parent` (TOP_LEVEL for none), unless it has a row for that parent already."""
+    """A pending row for `thread` under `parent` (TOP_LEVEL for none), unless it has a row for that parent already. Whether a row was added."""
     if any(r.thread == thread and r.anchor == parent for r in rows(store)):
-        return
+        return False
     with open(f'{store}/{TSV}', 'a', encoding='utf-8') as f:
         f.write(f'{stamp()}\t{thread}\t{role}\t{parent}\t{PENDING}\n')
     event(store, 'master', 'nest-pending', '-', f'{thread} {under(parent)}')
+    return True
 
 
 def under(parent):
@@ -246,23 +249,34 @@ def nest(ctx, args):
         discover(store)
     elif rest:
         raise Die(usage)
+    text = instructions(store, ctx.prog)
+    sys.stdout.write(text or 'nest: nothing pending\n')
+    return 0
+
+
+def instructions(store, prog):
+    """The `nest-pending:` line of each thread still waiting for a parent and the update_thread call that sets it; '' when none waits."""
     todo = pending(store)
-    if not todo:
-        sys.stdout.write('nest: nothing pending\n')
-        return 0
-    for r in todo:
-        sys.stdout.write(f'nest-pending: {r.thread} ({r.role}) {under(r.anchor)}\n')
+    lines = [f'nest-pending: {r.thread} ({r.role}) {under(r.anchor)}' for r in todo]
     who = f'ask {os.environ[VIA]} to ' if os.environ.get(VIA) else ''
-    then = f'then {ctx.prog} nest {store} --done <thread>...'
+    then = f'then {prog} nest {store} --done <thread>...'
     if any(r.anchor != TOP_LEVEL for r in todo):
-        sys.stdout.write(
-            f'nest: {who}call update_thread(thread=<T>, parent_thread=<anchor>) for each, {then}\n'
+        lines.append(
+            f'nest: {who}call update_thread(thread=<T>, parent_thread=<anchor>) for each, {then}'
         )
     if any(r.anchor == TOP_LEVEL for r in todo):
-        sys.stdout.write(
-            f'nest: {who}call update_thread(thread=<T>, parent_thread=null) for each top-level row, {then}\n'
+        lines.append(
+            f'nest: {who}call update_thread(thread=<T>, parent_thread=null) for each top-level row, {then}'
         )
-    return 0
+    return ''.join(f'{line}\n' for line in lines)
+
+
+def process_prog():
+    """The command name this process was started as (kitchen.sh or pair.sh), read from its skill root, for text printed where no Context is at hand."""
+    argv = sys.argv
+    if '--skill-root' not in argv[:-1]:
+        return 'pair.sh'
+    return load_variant_class(argv[argv.index('--skill-root') + 1]).PAIR_PROG
 
 
 def done(store, threads):
