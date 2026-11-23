@@ -323,10 +323,11 @@ place of the history:
   `take-master` installs it where that orb has none. Under the git store
   the snapshot is a local-only file the branch never holds, because the host
   roster stays on the host: `rotate-master` prints `relay: upload_thread_file
-  path=... destination=... thread=...`; make that upload (the amp module's
-  `upload_thread_file`, through code_exec) before you end your turn, since
-  `take-master` waits for your turn to end. When it does not arrive,
-  `take-master` continues with the next orb's own roster.
+  path=... destination=.git/pstack-roster-g<n>.toml thread=...`; make that
+  upload (the amp module's `upload_thread_file`, through code_exec) before you
+  end your turn. `take-master` waits at most `KITCHEN_TAKEOVER_WAIT_S` (30 s by
+  default) for your turn to end, so an upload made later is missed. When it
+  does not arrive, `take-master` continues with the next orb's own roster.
 - `rotate-master` records the session it closes under `pair.json`
   `.master.sessions`, so a human can `claude --resume <id>` it.
   `KITCHEN_MASTER_REMOTE_CONTROL=0` starts the next master without Remote
