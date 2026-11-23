@@ -1,6 +1,6 @@
 # Review 038: snooze-role-threads
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/038-snooze-role-threads.md
 head: bee0dc78bf5e357ee0c008b70ba54e1c35ad6a1b
 engine: joo 2026-11-23T20-50-50-476Z-d1e0c6db
@@ -23,3 +23,7 @@ none
 - snooze.py:128: --done accepts a master or a working thread.
 - snooze.py:105: status exports each role thread up to twice.
 - master.md:99: PSTACK_SNOOZE_ROLES=0 stops new snoozing only; a snoozed thread still needs --wake.
+
+## Resolved
+
+- Every blocking and non-blocking finding is fixed by 043 (e82b720a), verified clean with 038 in verdicts/043-snooze-role-threads-fix-v1.md.

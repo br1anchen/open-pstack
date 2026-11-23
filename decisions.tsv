@@ -133,3 +133,6 @@ ts	phase	decision	why	evidence	result
 2026-11-23T22:04:28Z	archive	archive verifier T-01a20a4a-b17c-7023-b3a7-9a778f04d274	no longer used by the store; a brief is being sent	amp threads archive T-01a20a4a-b17c-7023-b3a7-9a778f04d274	archived
 2026-11-23T22:05:19Z	review-043	043 joo: 1 medium (--done refusal after the external snooze); to 045, non-blocking	joo 801d9887	followups.md	verifier 038+043 running; sidekick rotated to g17 for 044
 2026-11-23T22:06:11Z	archive	archive sidekick T-01a1fe59-398e-71cb-8cac-577e8fe343df	no longer used by the store; a brief is being sent	amp threads archive T-01a1fe59-398e-71cb-8cac-577e8fe343df	archived
+2026-11-23T22:06:38Z	note	main moved to eb8228f9 outside this run (one live verifier per run)	git log daf51dc0..origin/main	'-	roster and snooze stacks rebase onto it at landing
+2026-11-23T22:17:57Z	archive	archive verifier T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8	no longer used by the store; its verdict is recorded	amp threads archive T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8	archived
+2026-11-23T22:18:08Z	review-043	038 and 043 accepted on clean verdict 043-v1	verdict 043-v1 clean; joo 801d9887 medium to 045	reviews/038, reviews/043	snooze stack ready to land (needs Brian's approval and a rebase onto eb8228f9)

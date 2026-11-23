@@ -59,3 +59,4 @@
 ## 043 (joo 2026-11-23T22-03-17-839Z-801d9887)
 
 - snooze.py:181 (medium): `--done` checks eligibility after update_thread already snoozed the thread; on refusal the thread is snoozed in Amp but recorded awake. Fix: the refusal tells the master to undo it (`update_thread(thread=<T>, snooze="off")`), or `--done` records what was done and prints the warning. Brief 045 (snooze isn't used in this run until then).
+- 043 verdict observation: a dispatch to a snoozed sidekick runs classify and the archive sweep before `require_awake` refuses; move the check ahead of the sweep. Brief 045.
