@@ -104,8 +104,8 @@ def anchor_title(store):
 
 def take_anchor(store, thread):
     """The next master `thread` takes over the run's anchor: `.anchor.thread` moves to it and the old anchor is added to `.anchor.previous`; the thread
-    is renamed to the anchor title and made top-level; each role thread the run still uses is nest-pending under it. (the title, '' when there is
-    none; the warning, '' when the rename worked.)"""
+    is renamed to the anchor title and made top-level; every other thread of the run, archived ones and the earlier masters included, is
+    nest-pending under it, so no thread stays under an old anchor. (the title, '' when there is none; the warning, '' when the rename worked.)"""
     from ..mux import amp
 
     old = anchor(store, thread)
@@ -127,10 +127,31 @@ def take_anchor(store, thread):
         if not renamed:
             warning = f'amp threads rename {thread} failed: {why}'
     add_pending(store, thread, 'master', TOP_LEVEL)
-    for role_thread, name in amp.live_threads(load(store)).items():
-        if amp.role_of(name) != 'master' and role_thread != thread:
-            add_pending(store, role_thread, amp.role_of(name), thread)
+    every = {
+        t: amp.role_of(name)
+        for t, name in amp.live_threads(load(store)).items()
+        if amp.role_of(name) != 'master'
+    }
+    every.update(run_threads(store, archived=True))
+    every.update(dict.fromkeys(previous_masters(store), 'master'))
+    for role_thread, role in sorted(every.items()):
+        if role_thread != thread:
+            add_pending(store, role_thread, role, thread)
     return title, warning
+
+
+def previous_masters(store):
+    """The threads of the masters that held the run before the current one: `.anchor.previous` and the `.master.sessions` threads."""
+    doc = load(store)
+    sessions = [
+        e.get('session')
+        for e in listing(peek(doc, 'master'), 'sessions')
+        if isinstance(e, dict)
+    ]
+    previous = listing(peek(doc, 'anchor'), 'previous')
+    return [
+        t for t in (*previous, *sessions) if isinstance(t, str) and t.startswith('T-')
+    ]
 
 
 def current_master(store):
@@ -148,9 +169,9 @@ def current_master(store):
     return sessions[-1][1] if sessions else ''
 
 
-def run_threads(store):
-    """{thread: role} of every unarchived thread the run's records name: threads.json entries for this store, the sidekick threads and master
-    sessions of pair.json, and the registry's agents titled for the run."""
+def run_threads(store, archived=False):
+    """{thread: role} of every thread the run's records name, unarchived ones only unless `archived`: threads.json entries for this store, the
+    sidekick threads and master sessions of pair.json, and the registry's agents titled for the run."""
     from ..mux import amp
 
     doc = load(store)
@@ -158,7 +179,7 @@ def run_threads(store):
     found = {
         t: e.get('role') or amp.role_of(e.get('name') or '')
         for t, e in amp.load_json(amp.threads_path()).items()
-        if e.get('store') == path and not e.get('archived')
+        if e.get('store') == path and (archived or not e.get('archived'))
     }
     for by_model in (peek(doc, 'sidekick_threads') or {}).values():
         found.update({t: 'sidekick' for t in by_model if isinstance(t, str)})

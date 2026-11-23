@@ -14955,6 +14955,21 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertNotIn(sidekick, self.run_sh('nest', str(self.store)))
 
+    def test_a_newer_pending_row_supersedes_an_older_pending_one_for_the_same_thread(
+        self,
+    ):
+        sidekick = self.three_pending()[0]
+        self.add_nest_row(sidekick, 'sidekick', 'T-next')
+        listed = [
+            line
+            for line in self.run_sh('nest', str(self.store)).splitlines()
+            if sidekick in line
+        ]
+        self.assertEqual(listed, [f'nest-pending: {sidekick} (sidekick) under T-next'])
+        self.assertIn(
+            'nest-pending: 3 threads\n', self.run_sh('status', str(self.store))
+        )
+
     def test_nest_done_on_two_of_three_leaves_one_and_status_counts_it(self):
         one, two, three = self.three_pending()
         self.assertIn(
@@ -16420,7 +16435,11 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('at', self.threads_json().get(amp_thread(1), {}))
         self.assertFalse((self.fake / 'amp-archived').exists())
 
-    def test_the_old_master_thread_is_archived_by_take_master_and_not_before(self):
+    def test_the_old_master_thread_is_archived_once_take_master_has_run_and_it_is_nested(
+        self,
+    ):
+        """take-master leaves the old master pending under the new anchor, and a sweep never archives a pending thread: update_thread cannot
+        set a parent on an archived one."""
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))
         master2 = amp_thread(2)
@@ -16428,7 +16447,11 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertFalse(archived.exists())
         self.set_state(AMP_MASTER, 'idle')
         out = self.as_thread(master2, 'take-master', str(self.store))
-        self.assertIn(f'archived {AMP_MASTER} (master): take-master has run', out)
+        self.assertIn(f'kept {AMP_MASTER}: nest pending', out)
+        self.assertFalse(archived.exists())
+        self.as_thread(master2, 'nest', str(self.store), '--done', AMP_MASTER)
+        out = self.as_thread(master2, 'threads', str(self.store), '--archive')
+        self.assertIn(f'archived {AMP_MASTER} (master): threads --archive', out)
         self.assertEqual(archived.read_text(), f'{AMP_MASTER}\n')
         self.assertNotIn(master2, archived.read_text())
 
@@ -16457,7 +16480,7 @@ class AmpKitchenTests(KitchenScriptTests):
             f'anchor: {master2} is the run\'s top-level anchor "{title}"; run kitchen.sh nest {self.store}',
             out,
         )
-        self.assertIn(f'archived {AMP_MASTER} (master): take-master has run', out)
+        self.assertIn(f'kept {AMP_MASTER}: nest pending', out)
         listed = self.run_sh('nest', str(self.store)).splitlines()
         self.assertIn(f'nest-pending: {master2} (master) top-level', listed)
         self.assertIn(
@@ -16524,6 +16547,48 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(
             f'nest-pending: {amp_thread(1)} (sidekick) under {master2}', listed
         )
+
+    def test_take_master_re_parents_every_thread_of_the_run_to_the_new_master_and_none_stays_under_an_old_one(
+        self,
+    ):
+        """A run that rotated twice already: its earlier masters, verifiers and an archived sidekick all end up pending under the new master."""
+        older, old, verifier1, verifier2, shelved = (
+            amp_thread(n) for n in (41, 42, 43, 44, 45)
+        )
+        here = str(self.store)
+        self.retire_threads(
+            {
+                older: {'name': 'demo-master', 'role': 'master', 'store': here},
+                old: {'name': 'demo-master', 'role': 'master', 'store': here},
+                verifier1: {'name': 'demo-verifier', 'role': 'verifier', 'store': here},
+                verifier2: {'name': 'demo-verifier', 'role': 'verifier', 'store': here},
+                shelved: {'name': 'demo-sidekick', 'role': 'sidekick', 'store': here, 'archived': 1},
+            }
+        )  # fmt: skip
+        for thread in (verifier1, verifier2, shelved):
+            self.add_nest_row(thread, 'verifier', AMP_MASTER)
+        doc = self.state()
+        doc['master']['sessions'] = [
+            {'generation': 1, 'session': old, 'handoff': '', 'at': ''}
+        ]
+        doc['anchor']['previous'] = [older]
+        self.edit_pair(master=doc['master'], anchor=doc['anchor'])
+        _, master2 = self.take_master_after_rotation()
+        listed = self.run_sh('nest', str(self.store)).splitlines()
+        for thread, role in (
+            (older, 'master'),
+            (old, 'master'),
+            (AMP_MASTER, 'master'),
+            (verifier1, 'verifier'),
+            (verifier2, 'verifier'),
+            (shelved, 'sidekick, archived'),
+            (amp_thread(1), 'sidekick'),
+        ):
+            with self.subTest(thread=thread):
+                self.assertIn(
+                    f'nest-pending: {thread} ({role}) under {master2}', listed
+                )
+        self.assertEqual([line for line in listed if f'under {AMP_MASTER}' in line], [])
 
     def test_a_second_take_master_adds_no_nest_rows_and_leaves_the_anchor(self):
         _, master2 = self.take_master_after_rotation()
