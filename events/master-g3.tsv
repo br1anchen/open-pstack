@@ -68,3 +68,13 @@
 2026-11-23T20:51:58Z	1795467118	master	nest	-	T-01a20a2d-4712-70f9-b88d-f3bf687500f7 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-23T20:52:04Z	1795467124	master	reuse	042-roster-relay-path	sidekick: pstack, pstack-docs, context 44%
 2026-11-23T20:52:11Z	1795467131	master	send-brief	042-roster-relay-path	
+2026-11-23T20:52:27Z	1795467147	master	queue	040-nest-every-start	
+2026-11-23T20:53:23Z	1795467203	master	queue	043-snooze-role-threads-fix	
+2026-11-23T20:53:23Z	1795467203	master	log	-	review-038: 038 revise: joo high (snooze.tsv unowned under git store breaks master publish) + medium (half-sent plan round); fix 044 before 040
+2026-11-23T20:53:35Z	1795467215	master	log	-	plan: renumber: 038's fix is brief 043; joo-mediums fix becomes 044
+2026-11-23T21:05:51Z	1795467951	master	archive	-	verifier:T-01a20a2d-4712-70f9-b88d-f3bf687500f7
+2026-11-23T21:05:51Z	1795467951	master	log	-	archive: archive verifier T-01a20a2d-4712-70f9-b88d-f3bf687500f7
+2026-11-23T21:05:51Z	1795467951	master	verify	038-snooze-role-threads	reject
+2026-11-23T21:05:51Z	1795467951	master	wake	038-snooze-role-threads	verify:reject
+2026-11-23T21:06:00Z	1795467960	master	log	-	verify-038: 038 reject: half-sent plan round (= joo medium), already brief 043 step 2; no separate revise brief
+2026-11-23T21:23:08Z	1795468988	master	send-verify	042-roster-relay-path	claude:042
