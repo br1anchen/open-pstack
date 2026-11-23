@@ -1,6 +1,6 @@
 # Review 010: roster-handoff
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/010-roster-handoff.md
 head: c40b7b0cd3989064a31295d45eb8cc880164f64e
 engine: joo 2026-11-21T14-32-50-440Z-e4569ce0
@@ -23,3 +23,7 @@ none
 - master.py:544: a snapshot written before publish_master/new_master is orphaned when either raises.
 - master.py:563: the rollback unlink can raise and hide the launch error; use missing_ok.
 - master.py:560: a dangling roster symlink gives a traceback in take-master instead of ToolFailed.
+
+## Resolved
+
+- The blocking finding (host roster published under the git store) is fixed by 039 (fc6d096b), verified clean with 010 in verdicts/039-roster-handoff-fix-v1.md. Lands only with 042.

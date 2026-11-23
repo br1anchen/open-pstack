@@ -53,3 +53,13 @@
 2026-11-23T20:14:48Z	1795464888	master	nest	-	T-01a20a0b-83d0-7288-9fd7-bc0667aa7c8d under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-23T20:15:00Z	1795464900	master	reuse	038-snooze-role-threads	sidekick: pstack, pstack-docs, context 34%
 2026-11-23T20:15:08Z	1795464908	master	send-brief	038-snooze-role-threads	
+2026-11-23T20:15:29Z	1795464929	master	queue	040-nest-every-start	
+2026-11-23T20:15:29Z	1795464929	master	log	-	review-039: 039 joo: 1 medium (absolute relay destination), 1 low; non-blocking, graceful fallback; to 042
+2026-11-23T20:23:19Z	1795465399	master	queue	042-roster-relay-path	
+2026-11-23T20:23:19Z	1795465399	master	log	-	plan: 042 roster-relay-path before landing 010+039 (Brian)
+2026-11-23T20:29:07Z	1795465747	master	archive	-	verifier:T-01a20a0b-83d0-7288-9fd7-bc0667aa7c8d
+2026-11-23T20:29:07Z	1795465747	master	log	-	archive: archive verifier T-01a20a0b-83d0-7288-9fd7-bc0667aa7c8d
+2026-11-23T20:29:07Z	1795465747	master	verify	039-roster-handoff-fix	clean
+2026-11-23T20:29:07Z	1795465747	master	wake	039-roster-handoff-fix	verify:clean
+2026-11-23T20:29:28Z	1795465768	master	log	-	review-039: 010 and 039 accepted on clean verdict 039-v1; land only with 042
+2026-11-23T20:51:00Z	1795467060	master	send-verify	038-snooze-role-threads	amp:038
