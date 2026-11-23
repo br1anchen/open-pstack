@@ -5,6 +5,7 @@
   "--features",
   "model:claude-sonnet-5-5"
  ],
+ "at": 1795471472,
  "generation": 16,
  "kind": "amp",
  "name": "kitchen-followups-sidekick",
@@ -78,6 +79,6 @@
  "role": "sidekick",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795268624,
- "state": "started",
+ "state": "retired",
  "thread": "T-01a1fe59-398e-71cb-8cac-577e8fe343df"
 }
