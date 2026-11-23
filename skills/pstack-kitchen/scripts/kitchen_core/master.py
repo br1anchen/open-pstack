@@ -10,7 +10,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from pstack_core import bundle, gitstore, mux, procinfo, secrets
+from pstack_core import git, gitstore, mux, procinfo, secrets
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
@@ -553,10 +553,11 @@ def relay_roster(store, roster, thread):
 
 
 def fetch_uploaded_roster(store, rel):
-    """The snapshot the old master uploaded to the repo's .git (relay_name) moved to its place in the store: whether it was there. A move
-    across filesystems copies and then removes the upload."""
-    root = bundle.repo_of(store)
-    uploaded = Path(root, relay_name(rel)) if root else None
+    """The snapshot the old master uploaded to the repo's .git (relay_name) moved to its place in the store: whether it was there. The repository
+    is the one the store is a worktree of on this orb, never pair.json's git_root or cwd, which hold the old master's paths. A move across
+    filesystems copies and then removes the upload."""
+    common = git.out(store, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    uploaded = Path(common).parent / relay_name(rel) if common else None
     if uploaded is None or not uploaded.is_file():
         return False
     snapshot = Path(store, rel)
