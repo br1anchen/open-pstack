@@ -515,6 +515,25 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   subagents nothing is recorded; under Amp threads it is recorded with either
   store backend, and under the git store `nest-pending.tsv` is published as one
   of the master's files.
+- Under Amp threads the master snoozes a role thread (sidekick, consultant,
+  verifier or helper) once it has no open work and its turn is settled, so the
+  thread list shows the active role threads and the master threads and nothing
+  else. A thread qualifies when it is idle, nothing is pending to it, and its
+  role has nothing open: the sidekick's dispatched unit is done and has a review
+  note, the consultant has no consult waiting for advice, no verification is
+  open. A master thread, and a thread working, cancelled or in `error`, are never
+  snoozed. The amp CLI cannot snooze, so `kitchen.sh snooze <store>` lists the
+  candidates and says to call `update_thread(thread=<T>, snooze="indefinite")`
+  for each, then `kitchen.sh snooze <store> --done <thread>...` records it in
+  `snooze.tsv` (`--wake <thread>...` records the opposite; a thread the store
+  never named is refused). Nothing is snoozed at thread start. A `dispatch`,
+  `discuss`, `consult` or `steer` to a thread recorded snoozed refuses before it
+  records anything, saying to call `update_thread(..., snooze="off")` and then
+  `kitchen.sh snooze <store> --wake <T>`; a fresh thread has no row and is never
+  refused. `status` prints `snooze-due: N role threads` while some qualify, and
+  `needs-human: <role> <T> (error)` for a live role thread in error.
+  `PSTACK_SNOOZE_ROLES=0` stops new snoozing (a thread snoozed earlier still
+  needs waking); it is on by default.
 - `prime-agent` cannot run here.
 
 ## Roles and quota
@@ -667,6 +686,7 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `pair.json` `.sidekick_threads` | `kitchen.sh dispatch`, under Amp threads | the threads each sidekick model ran in |
 | `pair.json` `.anchor` | `init`, `take-master`, under Amp threads | `thread`: the current master, top-level and the parent of every role thread (`nest`); `title`: the anchor title the master thread carries; `previous`: the masters that held it |
 | `nest-pending.tsv` | `kitchen.sh` starts, `kitchen.sh nest` | one row per thread waiting for its parent; a later `nested` row closes it |
+| `snooze.tsv` | `kitchen.sh snooze --done`, `--wake` | one row per change: time, thread, role, `snoozed` or `awake`; the newest row of a thread is its state |
 
 The git store (Amp threads, `PSTACK_STORE=git`; opt-in) adds, on the branch `kitchen/<slug>`:
 
