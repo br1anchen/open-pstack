@@ -117,3 +117,4 @@
 2026-11-23T22:40:55Z	1795473655	master	wake	044-roster-relay-repo	verify:progress
 2026-11-23T22:41:18Z	1795473678	master	nest	-	T-01a20a91-9a8d-7284-baac-5a12ee34cb56 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-23T22:41:22Z	1795473682	master	reuse	040-nest-every-start	sidekick: pstack, pstack-docs, context 11%
+2026-11-23T22:41:28Z	1795473688	master	send-brief	040-nest-every-start	
