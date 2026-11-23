@@ -20406,6 +20406,46 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertIn('did not arrive from the previous master', out)
         self.assertFalse(mine.exists())
 
+    def test_take_master_under_the_git_store_finds_the_upload_in_its_own_repo_not_the_old_masters_paths(
+        self,
+    ):
+        """pair.json's git_root and cwd are the old master's paths: one that does not exist here, or one that is another repository holding no
+        upload of ours, never decides where take-master looks. The repository the store is a worktree of does."""
+        sender = Path(self.tmp.name) / 'host-roster.toml'
+        sender.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(sender)
+        self.ready_path().unlink()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        snapshot = self.roster_snapshot()
+        kept = snapshot.read_bytes()
+        handed = (self.store / 'pair.json').read_text()
+        other = Path(self.tmp.name) / 'other-repo'
+        other.mkdir()
+        subprocess.run(['git', 'init', '-q', str(other)], check=True, timeout=60)
+        decoy = other / '.git/pstack-roster-g2.toml'
+        mine = Path(self.tmp.name) / 'orb2-roster.toml'
+        for old in (Path(self.tmp.name) / 'gone' / 'old-master-checkout', other):
+            with self.subTest(old=old.name):
+                state = json.loads(handed)
+                state['git_root'] = state['cwd'] = str(old)
+                (self.store / 'pair.json').write_text(json.dumps(state))
+                snapshot.unlink(missing_ok=True)
+                mine.unlink(missing_ok=True)
+                uploaded = self.repo / '.git/pstack-roster-g2.toml'
+                uploaded.write_bytes(kept)
+                decoy.write_bytes(b'not the roster\n')
+                out = self.as_thread(
+                    amp_thread(2),
+                    'take-master',
+                    str(self.store),
+                    env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+                )
+                self.assertIn(f'roster: installed {mine} from {snapshot}', out)
+                self.assertEqual(mine.read_bytes(), kept)
+                self.assertFalse(uploaded.exists())
+                self.assertEqual(decoy.read_bytes(), b'not the roster\n')
+
     def test_a_publish_that_fails_after_the_snapshot_leaves_no_snapshot_behind(self):
         roster = Path(self.tmp.name) / 'host-roster.toml'
         roster.write_text(self.ROSTER)
