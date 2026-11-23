@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from .. import mux
-from ..errors import Die
+from ..errors import Die, ToolFailed
 from ..store import event, load, pair_file
 
 TSV = 'snooze.tsv'
@@ -123,16 +123,10 @@ def status_lines(store):
 
 
 def snooze(ctx, args):
-    """One export of each thread for the whole command."""
+    """snooze <store> [--done <thread>... | --wake <thread>...]: the role threads to snooze with update_thread(thread=<T>, snooze="indefinite");
+    --done records them snoozed, --wake awake (after update_thread(..., snooze="off")). Each thread is exported once for the whole command."""
     from ..mux import amp
 
-    with amp.exports_cached():
-        return run_snooze(ctx, args)
-
-
-def run_snooze(ctx, args):
-    """snooze <store> [--done <thread>... | --wake <thread>...]: the role threads to snooze with update_thread(thread=<T>, snooze="indefinite");
-    --done records them snoozed, --wake awake (after update_thread(..., snooze="off"))."""
     usage = (
         f'usage: {ctx.prog} snooze <store> [--done <thread>... | --wake <thread>...]'
     )
@@ -140,18 +134,19 @@ def run_snooze(ctx, args):
         raise Die(usage)
     store, rest = args[0], args[1:]
     pair_file(store)
-    if rest and rest[0] in ('--done', '--wake') and len(rest) > 1:
-        roles = known_roles(store)
-        unknown = [t for t in rest[1:] if t not in roles]
-        if unknown:
-            raise Die(f'not recorded for snoozing: {" ".join(unknown)}')
-        return record(store, rest[0] == '--done', rest[1:], roles)
-    if rest:
-        raise Die(usage)
-    if not enabled():
-        sys.stdout.write(f'snooze: off ({SNOOZE}=0)\n')
-        return 0
-    todo = candidates(store)
+    with amp.exports_cached():
+        if rest and rest[0] in ('--done', '--wake') and len(rest) > 1:
+            roles = known_roles(store)
+            unknown = [t for t in rest[1:] if t not in roles]
+            if unknown:
+                raise Die(f'not recorded for snoozing: {" ".join(unknown)}')
+            return record(store, rest[0] == '--done', rest[1:], roles)
+        if rest:
+            raise Die(usage)
+        if not enabled():
+            sys.stdout.write(f'snooze: off ({SNOOZE}=0)\n')
+            return 0
+        todo = candidates(store)
     if not todo:
         sys.stdout.write('snooze: nothing to snooze\n')
         return 0
@@ -179,9 +174,11 @@ def record(store, snoozing, threads, roles):
         if state_of(store, thread) == SNOOZED:
             continue
         if roles[thread] == 'master':
-            raise Die(f'snooze: {thread} is a master thread; masters are never snoozed')
+            raise ToolFailed(
+                1, f'snooze: {thread} is a master thread; masters are never snoozed'
+            )
         if reason := why_not(store, thread, roles[thread]):
-            raise Die(f'snooze: {thread} is not snoozable now ({reason})')
+            raise ToolFailed(1, f'snooze: {thread} is not snoozable now ({reason})')
     for thread in dict.fromkeys(threads):
         if state_of(store, thread) == want or (
             want == AWAKE and not state_of(store, thread)
