@@ -92,7 +92,7 @@ RULES = (
     ),
     _rule(
         'roster snapshots of a master hand-over (the host roster stays on the host)',
-        r'sessions/master-g\d+-roster\.toml',
+        r'sessions/master-g[^/]*-roster\.toml',
         LOCAL,
         ignore=['sessions/master-g*-roster.toml'],
     ),
