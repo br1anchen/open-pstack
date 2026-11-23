@@ -91,3 +91,9 @@
 2026-11-23T21:35:55Z	1795469755	master	wake	042-roster-relay-path	verify:reject
 2026-11-23T21:36:10Z	1795469770	master	log	-	verify-042: 042 reject: ignore glob wider than LOCAL regex; folded into 044 step 2 with joo's repo-lookup medium
 2026-11-23T22:03:17Z	1795471397	master	send-verify	043-snooze-role-threads-fix	claude:038 043
+2026-11-23T22:03:28Z	1795471408	master	nest-pending	-	T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T22:03:36Z	1795471416	master	wake	043-snooze-role-threads-fix	verify:progress
+2026-11-23T22:04:19Z	1795471459	master	nest	-	T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-23T22:04:28Z	1795471468	master	archive	-	verifier:T-01a20a4a-b17c-7023-b3a7-9a778f04d274
+2026-11-23T22:04:28Z	1795471468	master	log	-	archive: archive verifier T-01a20a4a-b17c-7023-b3a7-9a778f04d274
+2026-11-23T22:04:35Z	1795471475	master	rotate	-	generation:16
