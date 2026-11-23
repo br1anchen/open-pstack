@@ -82,10 +82,16 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `relay-pending:` line in `kitchen.sh status` is a relay you have not
    finished; the sidekick reads nothing until you send it. A `nest-pending:
    N threads` line in `kitchen.sh status` means threads wait for a parent under
-   the run's anchor: run `kitchen.sh nest <store>`, call `update_thread` for
-   each thread it lists (amp module, through code_exec, `{thread,
-   parent_thread: <anchor>}`; `parent_thread: null` for a row listed as
-   `top-level`), then `kitchen.sh nest <store> --done <thread>...`. Under Amp threads a kept sidekick session
+   the run's anchor. Every command that starts a thread prints the same
+   instruction right after it, so act on it then: call `update_thread` for
+   each thread `kitchen.sh nest <store>` lists (amp module, through code_exec,
+   `{thread, parent_thread: <anchor>}`; `parent_thread: null` for a row listed
+   as `top-level`; for a row listed `archived`, first `{thread, archived: false}`
+   and afterwards `{thread, archived: true}`), then run
+   `kitchen.sh nest <store> --done <thread>...` only for threads whose
+   `update_thread` returned without an error and showed the expected parent:
+   `--done` cannot check it, and a sweep keeps a thread (`kept: nest pending`)
+   until it is done. Under Amp threads a kept sidekick session
    gets a brief's playbook and report sections as a pointer to the brief that
    carried them (`Unchanged from briefs/...`); there is nothing to do about it,
    and a rotation, a changed composition or a compaction brings them back in
@@ -321,8 +327,10 @@ dispatches and verifications. Do not re-run `init` or `spawn`; the roles
 are live. Under Amp threads `take-master` also makes you the run's anchor: it
 prints `anchor: <thread> is the run's top-level anchor "<title>"`. Run
 `kitchen.sh nest <store>` once, make the calls it lists (including
-`update_thread` with `parent_thread: null` for yourself, and the live role
-threads under you), then `kitchen.sh nest <store> --done <thread>...`.
+`update_thread` with `parent_thread: null` for yourself, and every other
+thread of the run under you, earlier masters and archived threads included),
+then `kitchen.sh nest <store> --done <thread>...`. The old master stays
+unarchived until it is nested; a later sweep archives it.
 
 ## Delegation
 
