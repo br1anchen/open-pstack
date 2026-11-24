@@ -535,14 +535,18 @@ def open_consults(store):
 
 def role_is_idle(store, doc, role):
     """Whether the live sidekick or consultant has nothing open in this run: the sidekick's last unit is done (rotation_required, and the report of
-    the brief dispatched to it says done, so an open dispatch stays) and no brief is queued for it, and no verifier is still verifying its unit
+    the brief dispatched to this generation says done, so an open dispatch and a generation not yet dispatched to stay) and no brief is queued for it,
+    and no verifier is still verifying its unit
     (pair.json .verifying); the consultant has no consult or plan round waiting on its advice."""
     if role == 'sidekick':
         queue = os.path.join(store, 'queue')
         queued = os.path.isfile(queue) and os.path.getsize(queue) > 0
-        brief = (doc.get('dispatch') or {}).get('brief') or ''
+        dispatch = doc.get('dispatch') or {}
+        brief = dispatch.get('brief') or ''
+        sidekick = doc.get('sidekick') or {}
         return (
-            (doc.get('sidekick') or {}).get('rotation_required') is True
+            sidekick.get('rotation_required') is True
+            and str(dispatch.get('generation')) == str(sidekick.get('generation'))
             and not doc.get('verifying')
             and not queued
             and bool(brief)
