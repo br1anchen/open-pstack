@@ -573,15 +573,24 @@ class Snoozed(PairError):
     code = 5
 
 
-def require_awake(store, thread):
-    """Raises Snoozed when the store's snooze.tsv records the thread snoozed. Whatever PSTACK_SNOOZE_ROLES says, a thread snoozed earlier still
-    needs waking; a thread with no row, as a fresh one has, is never refused."""
+def require_awake(store, *threads):
+    """Raises Snoozed, naming every one of threads that the store's snooze.tsv records snoozed, each with the call that wakes it. Whatever
+    PSTACK_SNOOZE_ROLES says, a thread snoozed earlier still needs waking; a thread with no row, as a fresh one has, is never refused."""
     from ..commands import snooze
 
-    if thread and snooze.state_of(store, thread) == snooze.SNOOZED:
+    asleep = [
+        t
+        for t in dict.fromkeys(threads)
+        if t and snooze.state_of(store, t) == snooze.SNOOZED
+    ]
+    if asleep:
+        head = f'{asleep[0]} is' if len(asleep) == 1 else f'{", ".join(asleep)} are'
+        calls = ', '.join(
+            f'call update_thread(thread={t}, snooze="off")' for t in asleep
+        )
         raise Snoozed(
-            f'snoozed: {thread} is snoozed; call update_thread(thread={thread}, snooze="off"), '
-            f'then kitchen.sh snooze {store} --wake {thread}, then run this again'
+            f'snoozed: {head} snoozed; {calls}, '
+            f'then kitchen.sh snooze {store} --wake {" ".join(asleep)}, then run this again'
         )
 
 

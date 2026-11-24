@@ -7,7 +7,7 @@ import time
 from .. import mux
 from ..argv import read
 from ..errors import Die, FileFailed, PairJsonGone
-from ..mux import DEVNULL, TIMEOUT
+from ..mux import DEVNULL, TIMEOUT, amp
 from ..numbers import env_float, env_int, tdiv
 from ..panes import agent_session, agent_status, pane_text, require_mux
 from ..replies import file_mtime
@@ -154,6 +154,19 @@ def clear_queue(store):
     update(store, lambda doc: doc.__setitem__('pending', []))
 
 
+def require_roles_awake(ctx, store, only=''):
+    """Refuses, before stop clears the queue or logs anything, when a thread of the roles it will message (`only` names one) is snoozed: every
+    snoozed thread is named at once with the calls that wake it."""
+    amp.require_awake(
+        store,
+        *(
+            mux.get().role_thread(field(store, role, 'name'))
+            for role in ctx.roles
+            if not only or only == role
+        ),
+    )
+
+
 def stop(ctx, args):
     require_mux()
     end_with_parent()
@@ -171,6 +184,7 @@ def stop(ctx, args):
         raise Die(f'{who("sidekick", name)} is not live', 2)
     if status == 'blocked':
         raise Die(f'{who("sidekick", name)} is blocked; inspect it before stopping', 3)
+    amp.require_awake(store, mux.get().role_thread(name))
     clear_queue(store)
     if mux.get().starts_on_prompt and not agent_session(mux.get().agent(name)):
         # An entry that holds no thread (Amp.start leaves one before the first prompt) would be started by the STOP itself.

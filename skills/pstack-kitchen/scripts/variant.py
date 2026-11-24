@@ -315,6 +315,7 @@ KitchenVariant.commands = {
     'feedback': KitchenCommand('feedback', 'feedback'),
     'maintainer': KitchenCommand('feedback', 'maintainer'),
     'close': KitchenCommand('master', 'close'),
+    'stop': KitchenCommand('master', 'stop'),
     'rotate-master': KitchenCommand('master', 'rotate_master'),
     'take-master': KitchenCommand('master', 'take_master'),
     'land-check': KitchenCommand('landing', 'land_check_command'),
