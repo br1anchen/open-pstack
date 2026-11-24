@@ -100,3 +100,7 @@
 
 - New: SKILL.md:336 still says close archives every remaining role, but a nest-pending role is kept; nest.py:136 module docstring says a master is never nested under a master, while take_anchor now nests earlier masters under the new one (as s4-hero item 3 asked) and discover() still skips them: make the docstring and discover agree.
 - Repeats of landing 4: dispatch.py snooze pre-check copies rotate_if_due's rule (three lows), nest lines printed from Amp.send, process_prog from sys.argv, multi-thread --done refusal, SKILL.md:567 undo-hint claim, rotates_before_sending branch tests.
+
+## Unit 052 (joo 2026-11-24T17-40-50-906Z-50b58d4c on b131308e..f117480b): 1 medium, judged non-blocking
+
+- bundle.py:952: when a reply's base is unknown, apply now merges against the newest bundle sent to that role. If the master's edit to a role-owned file was already in that bundle, the role's older copy replaces it without a conflict line. joo calls this a regression, but merge_file returns (incoming, False) for base None, so the old empty base was just as silent; 052 only adds a conflict line where the master changed the file after its last send. A follow-up could name every differing own-role file as a conflict when the base is unknown.

@@ -1,6 +1,6 @@
 # Review 051: reply-names-its-base
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/051-reply-names-its-base.md
 head: b131308e833d2eb556d3383db39fb484daac25a7
 engine: joo 2026-11-24T16-54-00-542Z-d6ba01b6
@@ -26,3 +26,7 @@ none
 - amp.py:595: `took_a_brief` raises DamagedStore on a damaged generation; `role_is_idle` should report "in use" rather than stop the archive sweep.
 - test_pstack_kitchen.py:15844: add the row sidekick without generation, dispatch generation 0.
 - SKILL.md:303: reword the stale "since ... newer" clause.
+
+## Accepted (master g4, 2026-11-24)
+
+The blocking findings were fixed in unit 052 (f117480b). Verdict 052-relay-keeps-bundle-id-v1 is clean for units 047, 049, 051 and 052, with no findings.

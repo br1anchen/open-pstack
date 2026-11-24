@@ -1,6 +1,6 @@
 # Review 047: bundle-and-rotation-fixes
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/047-bundle-and-rotation-fixes.md
 head: 973660250d7aa41552d66f9f0e837c38f6006699
 engine: joo 2026-11-24T13-17-52-337Z-54331eaa
@@ -26,3 +26,7 @@ none
 - test_pstack_core.py:20748: the sidekick subtest passes without the fix (verdicts/ is not sidekick-owned).
 - rotate.py:62 / errors.py: RotateRefused's docstring names only the master.
 - setup.py:248: permission 'none' forced even when the caller passed its own args.
+
+## Accepted (master g4, 2026-11-24)
+
+The blocking findings were fixed in unit 052 (f117480b). Verdict 052-relay-keeps-bundle-id-v1 is clean for units 047, 049, 051 and 052, with no findings.

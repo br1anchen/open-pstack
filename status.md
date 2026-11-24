@@ -1,9 +1,9 @@
 # Kitchen status
 
-generated: 2026-11-24T17:14:20Z
+generated: 2026-11-24T17:42:22Z
 master: kitchen-followups-master (amp:T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8) working
 sidekick: kitchen-followups-sidekick (amp:1) idle
-verifier: kitchen-followups-verifier (amp:17) absent
+verifier: kitchen-followups-verifier (amp:3) working
 consultant: kitchen-followups-consultant (amp:2) idle
 
 | seq | kind | unit | report | advice | review |
@@ -58,8 +58,11 @@ consultant: kitchen-followups-consultant (amp:2) idle
 | 049 | brief | bundle-and-rotation-fixes-2 | done | none | revise |
 | 050 | brief | landing-rebase-5 | done | none | accept |
 | 051 | brief | reply-names-its-base | done | none | revise |
-| 052 | brief | relay-keeps-bundle-id | none | none | none |
+| 052 | brief | relay-keeps-bundle-id | done | none | none |
 
-latest report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/051-reply-names-its-base.md
+latest report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/052-relay-keeps-bundle-id.md
 latest advice: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/advice/021-stop.md
-nest-pending: 3 threads
+snooze-due: 4 role threads; run kitchen.sh snooze /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups
+
+open scratch worktrees (remove with pair.sh scratch <store> <id> --remove):
+  052-relay-keeps-bundle-id-verify

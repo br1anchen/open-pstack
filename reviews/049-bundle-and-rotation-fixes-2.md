@@ -1,6 +1,6 @@
 # Review 049: bundle-and-rotation-fixes-2
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/049-bundle-and-rotation-fixes-2.md
 head: 648f31bfbc25a86d5a5b5c5106ce4d56e60778b0
 engine: joo 2026-11-24T15-21-10-554Z-4a5793fb
@@ -20,3 +20,7 @@ none
 ## Non-blocking (fixed in 051)
 
 - amp.py:549: reuse send.took_a_brief instead of a second str() generation comparison.
+
+## Accepted (master g4, 2026-11-24)
+
+The blocking findings were fixed in unit 052 (f117480b). Verdict 052-relay-keeps-bundle-id-v1 is clean for units 047, 049, 051 and 052, with no findings.

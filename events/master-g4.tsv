@@ -12,3 +12,11 @@
 2026-11-24T17:15:08Z	1795540508	master	reuse	052-relay-keeps-bundle-id	sidekick: pstack, pstack-docs, context 31%
 2026-11-24T17:15:16Z	1795540516	master	send-brief	052-relay-keeps-bundle-id	
 2026-11-24T17:40:09Z	1795542009	master	send-verify	052-relay-keeps-bundle-id	claude:047 049 051 052
+2026-11-24T17:40:18Z	1795542018	master	nest-pending	-	T-01a20ea4-e4a7-7360-a320-2d56e5ff9526 under T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8
+2026-11-24T17:40:29Z	1795542029	master	wake	052-relay-keeps-bundle-id	verify:progress
+2026-11-24T17:40:38Z	1795542038	master	nest	-	T-01a20ea4-e4a7-7360-a320-2d56e5ff9526 under T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8
+2026-11-24T17:56:37Z	1795542997	master	archive	-	verifier:T-01a20ea4-e4a7-7360-a320-2d56e5ff9526
+2026-11-24T17:56:37Z	1795542997	master	log	-	archive: archive verifier T-01a20ea4-e4a7-7360-a320-2d56e5ff9526
+2026-11-24T17:56:37Z	1795542997	master	verify	052-relay-keeps-bundle-id	clean
+2026-11-24T17:56:37Z	1795542997	master	wake	052-relay-keeps-bundle-id	verify:clean
+2026-11-24T17:58:27Z	1795543107	master	reuse	053-landing-rebase-6	sidekick: pstack, pstack-docs, context 34%

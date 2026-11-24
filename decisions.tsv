@@ -170,3 +170,4 @@ ts	phase	decision	why	evidence	result
 2026-11-24T17:11:03Z	archive	archive verifier T-01a20e7b-f136-770b-89db-4adad4d6149b	no longer used by the store; its verdict is recorded	amp threads archive T-01a20e7b-f136-770b-89db-4adad4d6149b	archived
 2026-11-24T17:12:02Z	review	051 revise; brief 052 queued	joo medium: relay bundles not kept by id; verdict clean	reviews/051-reply-names-its-base.md	052 queued; master rotates (compaction) before dispatch
 2026-11-24T17:13:48Z	archive	archive master T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	no longer used by the store; take-master has run	amp threads archive T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	archived
+2026-11-24T17:56:37Z	archive	archive verifier T-01a20ea4-e4a7-7360-a320-2d56e5ff9526	no longer used by the store; its verdict is recorded	amp threads archive T-01a20ea4-e4a7-7360-a320-2d56e5ff9526	archived

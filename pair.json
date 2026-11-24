@@ -11,7 +11,7 @@
     "tab_id": "",
     "registered_at": "2026-11-24T17:12:38Z",
     "permission_mode": "auto",
-    "units_since_handoff": 0,
+    "units_since_handoff": 1,
     "generation": 4,
     "landed_since_handoff": false,
     "sessions": [
@@ -91,7 +91,8 @@
         "reason": "Amp credit balance low: GLM sidekick g14 cannot run",
         "at": "2026-11-21T12:25:27Z"
       }
-    ]
+    ],
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/052-relay-keeps-bundle-id.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
