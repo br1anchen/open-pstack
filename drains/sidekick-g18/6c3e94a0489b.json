@@ -1,0 +1,16 @@
+{
+ "code": [
+  "b131308e833d2eb556d3383db39fb484daac25a7"
+ ],
+ "generation": 18,
+ "outputs": [
+  {
+   "path": "reports/051-reply-names-its-base.md",
+   "sha256": "fc6feb919bf5e8cb7dba366eee4cf174311c88bb33ce21a206be1f5b0755b230"
+  }
+ ],
+ "request": "6c3e94a0489b",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20db5-f98d-70f3-87e0-b2323c3b3bac"
+}

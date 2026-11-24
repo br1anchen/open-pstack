@@ -17,3 +17,11 @@
 2026-11-24T15:44:38Z	1795535078	sidekick	finish-verify-pass	050-landing-rebase-5	29cc53c2e
 2026-11-24T15:44:38Z	1795535078	sidekick	rotation-required	050-landing-rebase-5	generation:18 sha256:2499dd91d81e
 2026-11-24T15:44:41Z	1795535081	sidekick	report	050-landing-rebase-5	done
+2026-11-24T16:03:56Z	1795536236	sidekick	gate-fail	051-reply-names-its-base	abcf2b560 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/051-reply-names-its-base-abcf2b560268/out.1
+2026-11-24T16:14:57Z	1795536897	sidekick	step	051-reply-names-its-base	1:31bf16d5c
+2026-11-24T16:23:33Z	1795537413	sidekick	gate-fail	051-reply-names-its-base	2f177b861 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/051-reply-names-its-base-2f177b861058/out.1
+2026-11-24T16:33:23Z	1795538003	sidekick	step	051-reply-names-its-base	2:e104caf04
+2026-11-24T16:43:00Z	1795538580	sidekick	step	051-reply-names-its-base	3:b131308e8
+2026-11-24T16:53:10Z	1795539190	sidekick	finish-verify-pass	051-reply-names-its-base	b131308e8
+2026-11-24T16:53:10Z	1795539190	sidekick	rotation-required	051-reply-names-its-base	generation:18 sha256:fc6feb919bf5
+2026-11-24T16:53:13Z	1795539193	sidekick	report	051-reply-names-its-base	done
