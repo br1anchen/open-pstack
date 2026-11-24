@@ -273,13 +273,19 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   unless they name the git store.
 - Under the local store every orb has its own checkout and its own copy of
   the store. Each prompt attaches a bundle: the store's files, a git bundle of HEAD and of each
-  scratch worktree the store links (less what the remote holds: origin is
-  fetched first, without a prompt and for at most
-  `PSTACK_BUNDLE_FETCH_TIMEOUT_S` seconds, and when that fails the bundle
-  carries every commit, since an old tracking ref says nothing about what the
-  receiver can fetch; a send that carries evidence is cut the same way, so a
-  commit only the sender's remotes hold travels with it), and the
-  agents this side knows. A prompt to a role also attaches the master's
+  scratch worktree the store links, and the
+  agents this side knows. What the git bundle leaves out depends on the send.
+  A master's hand-over fetches origin first, without a prompt and for at most
+  `PSTACK_BUNDLE_FETCH_TIMEOUT_S` seconds (30), and leaves out only what origin's
+  default branch holds; when the fetch fails it carries every commit, since an
+  old tracking ref says nothing about what the receiver can fetch. A send that
+  carries evidence is cut against origin's default branch as this side last
+  fetched it, with no fetch, so a commit only the sender's remotes hold travels
+  with it. Any other send is cut against this side's remote-tracking refs, with
+  no fetch. A receiver that lacks a commit the bundle left out fetches origin
+  itself, without a prompt and for at most `PSTACK_BUNDLE_FETCH_TIMEOUT_S`
+  seconds (`PSTACK_BUNDLE_UNSHALLOW_TIMEOUT_S`, 600, when the clone is
+  shallow and the fetch unshallows it). A prompt to a role also attaches the master's
   skills build and the line that installs it under
   `~/.local/share/pstack-builds/`, so every orb runs the run's build. The
   receiving thread's first move is
@@ -305,9 +311,11 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   added (a master-owned one is not), and a sender the registry does not name
   owns nothing, so it only adds. The sync line names each file it kept, under the owner whose copy stayed (`kept the master's copy of: ...`, `kept sidekick's copy of: ...`);
   only the shared append logs `events.tsv` and `gates.tsv` take the union of
-  their lines, and a reply that lacks one deletes nothing. A reply
-  never deletes any file this side has that it merely lacks, such as a verdict
-  the master wrote after the role's snapshot. A
+  their lines, and a reply that lacks one deletes nothing. A reply deletes
+  a file of its own role that it lacks only when this side still has the file as
+  the base had it, so a role's deletion of its own file goes through; a file this
+  side wrote or changed since the base, such as a report the master marked after
+  the role's snapshot, stays. A
   bundle from the master, or from the master it took over from, is merged as
   before.
 - A role gets its setup once. Its first message (the bootstrap at spawn or
