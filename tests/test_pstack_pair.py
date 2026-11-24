@@ -1317,6 +1317,32 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn('one.txt', out)
         self.assertNotIn('two.txt', out)
 
+    def test_commits_rebased_with_an_equivalent_patch_are_not_counted_after_dispatch(
+        self,
+    ):
+        self.scoped_brief('001-first', 'src/**')
+        self.git('switch', '-q', '-c', 'b1')
+        base = self.git('rev-parse', 'HEAD')
+        self.commit_at('src/a.py', '2025-12-31T23:00:00Z')
+        first = self.git('rev-parse', 'HEAD')
+        self.commit_at('src/b.py', '2025-12-31T23:10:00Z')
+        second = self.git('rev-parse', 'HEAD')
+        pair = self.store / 'pair.json'
+        doc = json.loads(pair.read_text())
+        doc['dispatch'].update({'head': second, 'at': '2026-01-01T00:00:00Z'})
+        pair.write_text(json.dumps(doc))
+        # reword the ancestor: the descendant is rebased with the same patch, committed after dispatch
+        self.git('switch', '-q', '-c', 'b2', base)
+        self.git('cherry-pick', first)
+        self.git('commit', '-q', '--amend', '-m', 'reworded')
+        self.git('cherry-pick', second)
+        self.commit_at('other.txt', '2026-01-01T00:01:00Z')
+        out = self.wait(4)
+        self.assertIn('outside scope: 1\n  other.txt', out)
+        self.assertIn('touched: 1 files, 1 commits since dispatch', out)
+        self.assertNotIn('src/a.py', out)
+        self.assertNotIn('src/b.py', out)
+
     def steer(self, k, kind, effect, supersedes='none'):
         f = self.store / f'steers/001-first-s{k}.md'
         f.parent.mkdir(exist_ok=True)
