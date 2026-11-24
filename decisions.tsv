@@ -166,3 +166,6 @@ ts	phase	decision	why	evidence	result
 2026-11-24T15:48:07Z	review-050	joo on landing stack 5: lows only (2 new doc/consistency lows); none blocks the approved push	joo a6ad980e	followups.md	landing-v5 verifier running; 051 dispatched
 2026-11-24T15:59:52Z	archive	archive verifier T-01a20e3b-cf15-74d1-b123-1af43cda2b58	no longer used by the store; its verdict is recorded	amp threads archive T-01a20e3b-cf15-74d1-b123-1af43cda2b58	archived
 2026-11-24T16:00:10Z	land-4	pushed 29cc53c2 to main (3b951444..29cc53c2, 8 commits: 040, 046 via 050)	Brian's fourth approval; landing-v5 clean; land-check pass	git push origin 29cc53c2:main	047/049/051 next, needs its own approval
+2026-11-24T16:57:03Z	review	051 joo: relay medium confirmed	relay settle copies only to sent_path, so a reply after a relayed steer finds no base by id	joo 2026-11-24T16-54-00-542Z-d6ba01b6; relay.py:56-57	fold into the fix brief after the 051 verdict
+2026-11-24T17:11:03Z	archive	archive verifier T-01a20e7b-f136-770b-89db-4adad4d6149b	no longer used by the store; its verdict is recorded	amp threads archive T-01a20e7b-f136-770b-89db-4adad4d6149b	archived
+2026-11-24T17:12:02Z	review	051 revise; brief 052 queued	joo medium: relay bundles not kept by id; verdict clean	reviews/051-reply-names-its-base.md	052 queued; master rotates (compaction) before dispatch

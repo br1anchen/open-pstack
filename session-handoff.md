@@ -1,7 +1,7 @@
-# Handoff: kitchen-followups (master generation 2)
+# Handoff: kitchen-followups (master generation 3)
 
 store: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups
-written: 2026-11-21T14:22:14Z
+written: 2026-11-24T17:12:02Z
 
 A fresh master reads this before anything else. Write it for a stranger with
 no chat access: what the run is for, where every unit stands, what you
@@ -10,7 +10,7 @@ store holds the detail, so point at files instead of quoting them.
 
 ## Goal
 
-Land the kitchen follow-ups (top-followups.md items, Brian's in-run requests, the untangle and ChenChess bug reports) as accepted units with clean verdicts, a clean landing verdict and a passing land-check; every push to main needs Brian's explicit approval (standing orders 18-27). Brian approved (2026-11-21, this thread) pushing the whole accepted stack to main "now", then continuing with 010: that approval is NOT consumed yet.
+Land the kitchen follow-up units on br1anchen/open-pstack main as accepted units: each with a clean verdict, a joo review, a landing verdict and a passing land-check. Every push to main needs Brian's explicit approval in this thread (T-01a1fe7d); after each push, reply to Puck T-01a1eafa-f54b-71ff-890f-07428ab9c3e3 with the hash. The master never edits code; joo runs on every unit (`joo-dev ... </dev/null`); nest every new role thread under the anchor T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6. Standing orders 1-29 hold, including 28 (GLM trial: no Amp credits, sidekicks on Sonnet/Claude Code; end at ~20 units per model or a clear decision rule, then tell Puck units per model; every handoff carries this) and 29 (snooze a role thread only when idle with no open work; never snooze masters).
 
 ## Units
 
@@ -23,7 +23,7 @@ Land the kitchen follow-ups (top-followups.md items, Brian's in-run requests, th
 | 005 kept-sidekick-session | done | clean | accept |
 | 006 land-check-gone-head | done | clean | accept |
 | 009 git-store-default | - | - | - |
-| 010 roster-handoff | - | - | - |
+| 010 roster-handoff | done | clean | accept |
 | 011 git-store-default-on | - | - | - |
 | 012 store-pinned-build | - | - | - |
 | 013 git-handoff | - | - | - |
@@ -46,31 +46,51 @@ Land the kitchen follow-ups (top-followups.md items, Brian's in-run requests, th
 | 034 land-check-gone-head-fix | done | reject | accept |
 | 035 branch-ahead-not-diverged | done | - | accept |
 | 036 land-check-gone-head-fix | done | clean | accept |
-| 037 landing-rebase-2 | - | - | - |
+| 037 landing-rebase-2 | done | - | accept |
+| 038 snooze-role-threads | done | reject | accept |
+| 039 roster-handoff-fix | done | clean | accept |
+| 040 nest-every-start | done | clean | accept |
+| 042 roster-relay-path | done | reject | accept |
+| 043 snooze-role-threads-fix | done | clean | accept |
+| 044 roster-relay-repo | done | clean | accept |
+| 045 landing-rebase-3 | done | - | accept |
+| 046 snooze-stop-and-done | done | clean | accept |
+| 047 bundle-and-rotation-fixes | done | clean | revise |
+| 048 landing-rebase-4 | done | - | accept |
+| 049 bundle-and-rotation-fixes-2 | done | reject | revise |
+| 050 landing-rebase-5 | done | - | accept |
+| 051 reply-names-its-base | done | clean | revise |
+| 052 relay-keeps-bundle-id | - | - | - |
 
-dispatched: 010-roster-handoff.md
+dispatched: 051-reply-names-its-base.md (done); 052 written, not dispatched
 
-Landed on main be882968 (pushed 13:25Z, first approval, consumed): 001, 002, 003, 017, 018, 019, 020. PR #13 (027+029) merged at b681abc.
-Accepted, not landed (the approved second push): 005, 022-026, 028, 030-036, 004, 006 = commits c5cf2504..84ea957f (46 commits, kitchen-code/kitchen-followups/unit-036).
-Open: 010 dispatched to sidekick g16 T-01a1fe59-398e-71cb-8cac-577e8fe343df (Sonnet), from unit-036. 037 landing-rebase-2 is written and classified but NOT queued (queue refused: master compacted); queue it as the next brief. 009 is superseded by plans 014-016 (units 012, 013, 011). 012/013/011 wait on escalated plan rounds 014 -> 015 -> 016 (plans in plans/), each with a fresh consultant via kitchen.sh consultant.
+Landed on main (no GitHub CI exists for this repo): be882968, daf51dc0, 699837d8 (038/043, 010/039/042/044), 29cc53c2 (040, 046, rebased by 050 onto Brian's commits to 3b951444). All accepted units through 050 are on main.
+Open stack, not on main: 047 (97366025), 049 (648f31bf), 051 (b131308e), on origin as kitchen-code/kitchen-followups/unit-NNN. Verdict 051-v1 clean for 047 049 051, but joo found a real medium (relay bundles not kept by id; master confirmed at commands/relay.py:56-57), so 051 is revise and brief 052 fixes it from b131308e. 052 is written and classified (routine, pstack + pstack-docs, batch verify) but NOT dispatched: dispatch and queue refuse until the master rotates (compaction).
+009/011/012/013: plans not yet run (see Next).
 
 ## Decisions
 
-- Second push blocked: master's trial rebase of c5cf2504..84ea957f onto be88296 stops at fe439aee (022 nest --discover) against PR #13's take_anchor in nest.py. Earlier conflicts are tests/SPEC.md only. Master never edits code, so brief 037 hands the rebase to the sidekick (decisions.tsv land-2).
-- 037 step 2: discover's missing-anchor default moves from the oldest master to the current master, recorded top-level, because order 27 / PR #13 make the current master the anchor. Changes an accepted unit's behaviour; say so to Brian at landing.
-- Accepted 006, 034, 035, 036 on clean verdict 036-v1; joo lows in followups.md. Sidekick runs on Sonnet via claude-code (Amp credits out; Brian's choice); GLM A/B ended at 002.
+- Fold verifier and joo findings into one fix brief per stack rather than separate revise briefs (051 folded 049's reject; 052 folds 051's medium and six lows). Record: reviews/051-reply-names-its-base.md.
+- Land stacks via a sidekick cherry-pick landing brief onto current origin/main, then `verify --landing`, `land-check`, `git merge-base --is-ancestor origin/main <tip>` before pushing; main moved outside this run twice.
+- Ignore the "N units verified; rotate" advice; rotate only above 60% context or after a compaction (this rotation is for a compaction).
+- `verify` takes `--covers` once per unit: `verify $S 052 --covers 047 --covers 049 --covers 051`.
 
 ## Open concerns
 
-- Amp credits exhausted: Amp-billed models (GLM, Amp Opus) fail; claude-code Sonnet and GPT-6.1 Sol (ChatGPT) work. Verifiers so far ran fine.
-- Puck T-01a1eafa-f54b-71ff-890f-07428ab9c3e3 is owed: the second main hash with its units, then 011-013 hashes and units by model at run end.
+- Old idle sidekick threads T-01a1f99d…, T-01a1fe0d…, T-01a1f94a… are kept; update_thread on them errored. Consultant T-01a1f958-10b7-7675-b9d4-ad9f43f019fc is idle. Sidekick g18 T-01a20db5-f98d-70f3-87e0-b2323c3b3bac is idle after 051 and can take 052 (same area).
+- Kitchen gaps to file at retro with `kitchen.sh feedback`: a sidekick published a stale master pair.json (repaired at c5261df3); a sidekick turn ended while gates ran (039); `feedback` with no registered maintainer reaches no one; the 6aaa6770 build role workaround.
+- Unanswered: Puck is owed the GLM-trial end message (order 28). The ChenChess merge controller T-01a209ff-7d3c-7000-b557-034d754b8caf asked whether this run has a chenchess PR to land; this run lands on open-pstack, not chenchess, so the answer is "nothing to land" if not yet sent (check this thread).
 
 ## Next
 
-1. `kitchen.sh queue <store> briefs/037-landing-rebase-2.md` so it runs after 010. On 010's report: push unit-010, joo, verify 010.
-2. On 037's report: push to kitchen-code/kitchen-followups/unit-037, joo on be88296..head, `verify <store> --landing --base be88296... --head <037 head>`, land-check, then push to main (Brian already approved this push) with a CI subscription, and reply to Puck with the hash and units. 010 lands in a later push with its own approval. Then plan rounds 014, 015, 016 and units 012, 013, 011; retro, artifact rows, feedback.
+1. `kitchen.sh dispatch $S $S/briefs/052-relay-keeps-bundle-id.md --send-only` (to sidekick g18), then wait for its report.
+2. On 052 done: sync, `git push origin <head>:refs/heads/kitchen-code/kitchen-followups/unit-052`, `kitchen.sh verify $S 052 --covers 047 --covers 049 --covers 051`, nest the verifier, joo on b131308e..<head> into .amp/in/orb-backup/joo/052, write reviews/052-*.md.
+3. On clean verdict + accept: accept 047/049/051/052, write a landing brief that cherry-picks 29cc53c2..<052 head> onto current origin/main, `verify --landing`, `land-check`, then ASK Brian to approve the push (no approval yet for this stack).
+4. Then a brief for followups.md lows; plan rounds 014→unit 012, 015→unit 013, 016→unit 011 (includes Brian's rule: on an orb or PSTACK_MUX=amp default PSTACK_STORE=git, on local herdr/rex the directory store, explicit PSTACK_STORE wins), each with `kitchen.sh consultant`, `new-plan`, `discuss`; 041 verifier-lands (ChenChess feedback) last.
+5. Run end: retro, Run log rows in the sidekick comparison artifact, feedback, Puck GLM-trial message.
 
 ## Pointers
 
 - standing orders: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/standing-orders.md
-- briefs/037-landing-rebase-2.md; decisions.tsv (land, land-2); verdicts/landing-v1.md (first landing); followups.md; reviews/036. Landing worktree /home/user/workspace/landing (branch landing-followups at be88296, clean). Rebase helper .amp/in/orb-backup/master/rebase-spec.sh (SPEC.md-only conflicts). joo copies under .amp/in/orb-backup/joo/.
+- reviews/051-reply-names-its-base.md, verdicts/051-reply-names-its-base-v1.md, briefs/052-relay-keeps-bundle-id.md
+- followups.md (non-blocking findings still to brief), events.tsv / decision log

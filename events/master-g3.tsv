@@ -227,3 +227,13 @@
 2026-11-24T15:59:52Z	1795535992	master	wake	-	verify:clean
 2026-11-24T16:00:10Z	1795536010	master	log	-	land-4: pushed 29cc53c2 to main (3b951444..29cc53c2, 8 commits: 040, 046 via 050)
 2026-11-24T16:55:24Z	1795539324	master	send-verify	051-reply-names-its-base	claude:047 049 051
+2026-11-24T16:55:37Z	1795539337	master	nest-pending	-	T-01a20e7b-f136-770b-89db-4adad4d6149b under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T16:55:45Z	1795539345	master	wake	051-reply-names-its-base	verify:progress
+2026-11-24T16:55:55Z	1795539355	master	nest	-	T-01a20e7b-f136-770b-89db-4adad4d6149b under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T16:57:03Z	1795539423	master	log	-	review: 051 joo: relay medium confirmed
+2026-11-24T17:11:03Z	1795540263	master	archive	-	verifier:T-01a20e7b-f136-770b-89db-4adad4d6149b
+2026-11-24T17:11:03Z	1795540263	master	log	-	archive: archive verifier T-01a20e7b-f136-770b-89db-4adad4d6149b
+2026-11-24T17:11:03Z	1795540263	master	verify	051-reply-names-its-base	clean
+2026-11-24T17:11:03Z	1795540263	master	wake	051-reply-names-its-base	verify:clean
+2026-11-24T17:12:01Z	1795540321	master	rotate-due	-	compacted
+2026-11-24T17:12:02Z	1795540322	master	log	-	review: 051 revise; brief 052 queued
