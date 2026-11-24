@@ -25,3 +25,7 @@
 2026-11-24T16:53:10Z	1795539190	sidekick	finish-verify-pass	051-reply-names-its-base	b131308e8
 2026-11-24T16:53:10Z	1795539190	sidekick	rotation-required	051-reply-names-its-base	generation:18 sha256:fc6feb919bf5
 2026-11-24T16:53:13Z	1795539193	sidekick	report	051-reply-names-its-base	done
+2026-11-24T17:29:53Z	1795541393	sidekick	step	052-relay-keeps-bundle-id	1:f117480b8
+2026-11-24T17:39:33Z	1795541973	sidekick	finish-verify-pass	052-relay-keeps-bundle-id	f117480b8
+2026-11-24T17:39:33Z	1795541973	sidekick	rotation-required	052-relay-keeps-bundle-id	generation:18 sha256:ec641e0a82ac
+2026-11-24T17:39:35Z	1795541975	sidekick	report	052-relay-keeps-bundle-id	done

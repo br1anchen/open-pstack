@@ -1,0 +1,16 @@
+{
+ "code": [
+  "f117480b83a23ccbceccdf5d394e552470e89391"
+ ],
+ "generation": 18,
+ "outputs": [
+  {
+   "path": "reports/052-relay-keeps-bundle-id.md",
+   "sha256": "ec641e0a82ac434a0be68f9eaf7259bcc1b991ad5e60bc908955325f1ce0e43a"
+  }
+ ],
+ "request": "559fc82d0147",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20db5-f98d-70f3-87e0-b2323c3b3bac"
+}
