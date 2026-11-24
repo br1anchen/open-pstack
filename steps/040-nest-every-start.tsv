@@ -1,0 +1,4 @@
+1	b6ff274eaf43005ab1ac84b91bade7ac2c081976	1795475015		a start prints the nest instructions of the thread it started
+2	b48455eb459703e31cf87d8deb86f93edef80771	1795476395		a pending nest row keeps a thread from the sweep; archived pending threads get the three-call instruction
+3	1b8c37d1ef5681e5295c632389202ae4c5054ed6	1795477185		take-master nests every thread of the run under the new anchor
+4	6b2551f9b05531c632a2d3e958731fb76f5c4b87	1795477843		docs: nest instructions on starts, pending rows keep threads, whole-run re-parenting, --done unchecked

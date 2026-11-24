@@ -1,0 +1,16 @@
+{
+ "code": [
+  "6b2551f9b05531c632a2d3e958731fb76f5c4b87"
+ ],
+ "generation": 17,
+ "outputs": [
+  {
+   "path": "reports/040-nest-every-start.md",
+   "sha256": "8c99235ef7482f9a2ac2ac63f990d8615f6dc3161b55899330c32801bb72fb1b"
+  }
+ ],
+ "request": "329391d6343b",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20a70-a13e-7108-b446-3b81278c27ce"
+}
