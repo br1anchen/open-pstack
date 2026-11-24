@@ -34,3 +34,4 @@
 2026-11-24T11:12:23Z	1795518743	verifier	report	046-snooze-stop-and-done-v1	clean
 2026-11-24T13:33:21Z	1795527201	verifier	report	047-bundle-and-rotation-fixes-v1	clean
 2026-11-24T14:20:41Z	1795530041	verifier	report	landing-v4	clean
+2026-11-24T15:36:50Z	1795534610	verifier	report	049-bundle-and-rotation-fixes-2-v1	reject
