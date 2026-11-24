@@ -20735,6 +20735,21 @@ class BundleMergeTests(unittest.TestCase):
         self.assertFalse((self.store / 'briefs.md').exists())
         self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
 
+    def test_a_late_reply_never_deletes_a_file_the_master_wrote_after_its_snapshot(
+        self,
+    ):
+        """The reply was packed before the master wrote a gates-mode verdict, and the base is the newer bundle the master sent the role since: the
+        reply lacks the verdict, and a file its sender did not write is not its to delete."""
+        incoming = self.pack('incoming.tgz')
+        (self.store / 'verdicts').mkdir()
+        self.write('verdicts/001-x-v1.md', 'status: clean\n')
+        base = self.pack('base.tgz')
+        for role in ('verifier', 'sidekick'):
+            with self.subTest(role=role):
+                self.write('verdicts/001-x-v1.md', 'status: clean\n')
+                self.bundle.apply(incoming, base, self.bundle.Reply(role))
+                self.assertEqual(self.read('verdicts/001-x-v1.md'), 'status: clean\n')
+
 
 class BundleRepoCase(unittest.TestCase):
     """A git checkout and a store that names it, as a bundle's sender and receiver both see them: the receiver is the sender's own checkout
