@@ -1,5 +1,7 @@
 {
+ "archived": 1795535989,
  "args": [],
+ "at": 1795535984,
  "generation": 0,
  "kind": "claude",
  "name": "kitchen-followups-verifier",
@@ -17,6 +19,6 @@
  "role": "verifier",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795535133,
- "state": "started",
+ "state": "archived",
  "thread": "T-01a20e3b-cf15-74d1-b123-1af43cda2b58"
 }
