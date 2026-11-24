@@ -103,6 +103,14 @@ which skills build a run's commands came from. Every command runs in Python, in 
    their test suites instead of overloading the machine. The default is one
    slot per eight cores.
 
+   An orb with no roster entry for a role, as a fresh Amp orb has none, starts
+   the run's recorded entry when `spawn` or `consultant` names no `--kind`: the
+   `kind` and `start_args` that `pair.json` holds for the sidekick or the
+   consultant, said as `spawn: no host roster here; starting the run's recorded
+   <role> (<label>)`; `--` arguments win over the recorded ones. A store that
+   records no kind for the role keeps the error `no --kind and no [<role>] kind
+   in the host roster`.
+
 To use Muse Code, set `kind = "muse"` in any roster entry with Muse-native
 `args` (for example `["--model", "muse-wonder-full"]`); read
 [the Muse adapter](../pstack-pair/references/muse-sidekick.md).
@@ -265,7 +273,12 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   unless they name the git store.
 - Under the local store every orb has its own checkout and its own copy of
   the store. Each prompt attaches a bundle: the store's files, a git bundle of HEAD and of each
-  scratch worktree the store links (less what the remote holds), and the
+  scratch worktree the store links (less what the remote holds: origin is
+  fetched first, without a prompt and for at most
+  `PSTACK_BUNDLE_FETCH_TIMEOUT_S` seconds, and when that fails the bundle
+  carries every commit, since an old tracking ref says nothing about what the
+  receiver can fetch; a send that carries evidence is cut the same way, so a
+  commit only the sender's remotes hold travels with it), and the
   agents this side knows. A prompt to a role also attaches the master's
   skills build and the line that installs it under
   `~/.local/share/pstack-builds/`, so every orb runs the run's build. The
@@ -292,7 +305,9 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   added (a master-owned one is not), and a sender the registry does not name
   owns nothing, so it only adds. The sync line names each file it kept, under the owner whose copy stayed (`kept the master's copy of: ...`, `kept sidekick's copy of: ...`);
   only the shared append logs `events.tsv` and `gates.tsv` take the union of
-  their lines, and a reply that lacks one deletes nothing. A
+  their lines, and a reply that lacks one deletes nothing. A reply
+  never deletes any file this side has that it merely lacks, such as a verdict
+  the master wrote after the role's snapshot. A
   bundle from the master, or from the master it took over from, is merged as
   before.
 - A role gets its setup once. Its first message (the bootstrap at spawn or
@@ -451,9 +466,13 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
     `compacted`, `failed over`, `plan`, or `manual` for `kitchen.sh rotate`
     itself), and the `rotate` event's detail
     carries it (`generation:N reason:<reason>`); Herdr and Rex rotate every
-    time and print nothing. A new sidekick generation starts with
-    `rotation_required` cleared, so the next dispatch is sent once its READY is
-    in. A rotation or failover archives the role's
+    time and print nothing. `rotation_required` stays set
+    until the new generation's READY settles it, never at its start: a dispatch
+    before READY refuses (`needs a fresh session or a successful bootstrap`) and
+    is sent once READY is in. A replacement that never sends READY is no session
+    to keep, so `rotate` replaces it again (`rotate: the new sidekick never sent
+    READY; rotating again`, reason `no READY`), whether it came from a rotation
+    or from a `spawn` after `close`. A rotation or failover archives the role's
     thread; its next prompt starts a fresh one.
   - The verifier stays fresh: each verification starts a new verifier
     thread, which sends its verdict back with `kitchen.sh notify`; run
