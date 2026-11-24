@@ -10,7 +10,7 @@ from .. import gitstore, mux
 from ..agents import current_no_mcp, model_label
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
-from ..errors import Die, PairError, RotationFailed, translate
+from ..errors import Die, PairError, RotateRefused, RotationFailed, translate
 from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import check_scope, require_not_paused
 from ..gitstore import is_git
@@ -59,17 +59,15 @@ def require_rotatable(store, sidekick, reason):
         f'{store}/{ready_file(store, "sidekick")}'
     )
     if not rotation_required(store) and not unready:
-        raise Die(
-            'rotation requires a completed task; partial or blocked work keeps its session',
-            5,
+        raise RotateRefused(
+            'rotation requires a completed task; partial or blocked work keeps its session'
         )
     if unready and reason is None:
         reason = 'no READY'
         print('rotate: the new sidekick never sent READY; rotating again')
     if not isinstance(sidekick.get('start_args'), list):
-        raise Die(
-            'no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags',
-            5,
+        raise RotateRefused(
+            'no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags'
         )
     return reason
 
