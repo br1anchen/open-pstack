@@ -176,3 +176,9 @@
 2026-11-24T13:19:11Z	1795526351	master	rotate	-	generation:17
 2026-11-24T13:19:21Z	1795526361	master	nest-pending	-	T-01a20db5-f98d-70f3-87e0-b2323c3b3bac under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-24T13:19:29Z	1795526369	master	spawn	-	sidekick:amp:handed-off
+2026-11-24T13:20:21Z	1795526421	master	nest	-	T-01a20db5-f98d-70f3-87e0-b2323c3b3bac under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T13:21:17Z	1795526477	master	log	-	review-047: 047 revise: joo 3 mediums (fresh sidekick read idle; fetch on every send; doc) + role deletions lost; fix 049 after 048
+2026-11-24T13:22:30Z	1795526550	master	archive	-	sidekick:T-01a20a70-a13e-7108-b446-3b81278c27ce
+2026-11-24T13:22:30Z	1795526550	master	log	-	archive: archive sidekick T-01a20a70-a13e-7108-b446-3b81278c27ce
+2026-11-24T13:22:33Z	1795526553	master	spawn	-	sidekick:amp:ready
+2026-11-24T13:22:34Z	1795526554	master	send-brief	048-landing-rebase-4	
