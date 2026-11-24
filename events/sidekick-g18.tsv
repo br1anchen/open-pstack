@@ -29,3 +29,7 @@
 2026-11-24T17:39:33Z	1795541973	sidekick	finish-verify-pass	052-relay-keeps-bundle-id	f117480b8
 2026-11-24T17:39:33Z	1795541973	sidekick	rotation-required	052-relay-keeps-bundle-id	generation:18 sha256:ec641e0a82ac
 2026-11-24T17:39:35Z	1795541975	sidekick	report	052-relay-keeps-bundle-id	done
+2026-11-24T18:13:31Z	1795544011	sidekick	step	053-landing-rebase-6	1:d7f3a4c99
+2026-11-24T18:22:42Z	1795544562	sidekick	finish-verify-pass	053-landing-rebase-6	d7f3a4c99
+2026-11-24T18:22:42Z	1795544562	sidekick	rotation-required	053-landing-rebase-6	generation:18 sha256:a13c9696f689
+2026-11-24T18:22:45Z	1795544565	sidekick	report	053-landing-rebase-6	done

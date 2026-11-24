@@ -1,0 +1,16 @@
+{
+ "code": [
+  "d7f3a4c99de4f15ae162744ae278faa8fe7b3cfc"
+ ],
+ "generation": 18,
+ "outputs": [
+  {
+   "path": "reports/053-landing-rebase-6.md",
+   "sha256": "a13c9696f689034024569dec61f3f7194d1c03a660b8049535f36eb47f843b3b"
+  }
+ ],
+ "request": "ba055590a8db",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20db5-f98d-70f3-87e0-b2323c3b3bac"
+}
