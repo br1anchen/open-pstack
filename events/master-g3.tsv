@@ -161,3 +161,5 @@
 2026-11-24T11:13:05Z	1795518785	master	verify	046-snooze-stop-and-done	clean
 2026-11-24T11:13:05Z	1795518785	master	wake	046-snooze-stop-and-done	verify:clean
 2026-11-24T11:13:49Z	1795518829	master	reuse	047-bundle-and-rotation-fixes	sidekick: pstack, pstack-docs, context 41%
+2026-11-24T11:13:56Z	1795518836	master	log	-	review-046: 046 accepted on clean verdict 046-v1; 047 dispatched (bundle x3, spawn rotation, s4-hero gaps 5-6)
+2026-11-24T11:14:14Z	1795518854	master	send-brief	047-bundle-and-rotation-fixes	

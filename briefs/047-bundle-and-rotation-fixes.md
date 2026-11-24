@@ -32,7 +32,8 @@ may write:
 - tests/SPEC.md
 
 must not write:
-- skills/pstack-pair/scripts/pstack_core/commands/nest.py and commands/snooze.py (units 040 and 046 are not on main yet)
+- skills/pstack-pair/scripts/pstack_core/commands/nest.py — unit 040 is not on main yet
+- skills/pstack-pair/scripts/pstack_core/commands/snooze.py — unit 046 is not on main yet
 - anything else
 
 ## Steps
