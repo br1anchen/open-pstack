@@ -16969,6 +16969,7 @@ class CoreTests(unittest.TestCase):
         git('checkout', '-q', 'plain')
         tip, trunk = stacks['plain'][1], shas['trunk']
         side = git('rev-parse', 'unit')
+        first = git('rev-list', '--reverse', f'{trunk}..{tip}').split()[0]
         short = lambda sha: sha[:9]
         merge_base = f'landing base: merge-base of remotes/origin/main and HEAD ({short(trunk)})\n'
         stale = lambda label, shown: (
@@ -17013,6 +17014,13 @@ class CoreTests(unittest.TestCase):
                 {},
                 0,
                 f'landing base: recorded parent rel ({short(shas["base"])}) is behind remotes/origin/main; using the merge-base of remotes/origin/main and HEAD ({short(trunk)})\n',
+            ),
+            (
+                'a stacked recorded parent ahead of trunk',
+                {'landing': {'parent': first, 'parent_ref': 'rel'}},
+                {'rev': first},
+                0,
+                f'landing base: recorded parent rel ({short(first)})\n',
             ),
             (
                 'an override behind trunk',
