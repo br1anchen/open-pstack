@@ -41,6 +41,7 @@ from ..store import (
     pair_file,
     peek,
     read_flag,
+    ready_file,
     risk_of,
     rotation_required,
     text_at,
@@ -65,11 +66,18 @@ def rotate(ctx, args, reason=None):
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
     sidekick = peek(load(store), 'sidekick')
-    if not rotation_required(store):
+    # A replacement that never sent READY is no session to keep: it may be replaced again, whatever the unit before it did.
+    unready = sidekick.get('bootstrap_pending') is True and not os.path.isfile(
+        f'{store}/{ready_file(store, "sidekick")}'
+    )
+    if not rotation_required(store) and not unready:
         raise Die(
             'rotation requires a completed task; partial or blocked work keeps its session',
             5,
         )
+    if unready and reason is None:
+        reason = 'no READY'
+        print('rotate: the new sidekick never sent READY; rotating again')
     if not isinstance(sidekick.get('start_args'), list):
         raise Die(
             'no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags',
@@ -417,7 +425,6 @@ def rotate_if_due(ctx, store, what, brief=''):
             said.write(text)
     if code == 4 and not mux.get().waits:
         # The new thread bootstraps on its own after rotate returns: this was a fresh session, and its READY settles the bootstrap.
-        clear_rotation(store)
         sys.stderr.write(
             f'{said.getvalue()}rotated: a new sidekick thread is starting; {f"run dispatch {brief}" if brief else "send the plan"} again after its READY\n'
         )

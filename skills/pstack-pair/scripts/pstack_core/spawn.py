@@ -219,11 +219,9 @@ def record_started(store, role, kind, pane, args, permission, master_mode):
             list(args),
         )
         entry['generation'] = count(entry, 'generation') + 1
+        # rotation_required stays until the new generation's READY settles it (mark_ready): a replacement that never boots leaves the flag, so
+        # rotate can replace it again instead of refusing with `partial or blocked work keeps its session`.
         entry['bootstrap_pending'] = True
-        # Where a spawn does not wait for READY (Amp threads, subagents) the replacement is what a finished unit asked for, so the flag goes with the
-        # generation it asked to replace; bootstrap_pending still keeps the next task away until READY. Where it waits, READY clears it (mark_ready).
-        if not mux.get().waits:
-            entry['rotation_required'] = False
         entry['permission_mode'] = permission
         entry['closed'] = False
         member(doc, 'master')['permission_mode'] = master_mode

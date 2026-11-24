@@ -87,11 +87,10 @@ def record_sent(store, file, kind, now=None):
 def require_fresh_session(store):
     sidekick = peek(load(store), 'sidekick')
     kind = text_at(sidekick, 'kind')
-    # A bootstrap that finished after its spawn returned (a dialog held it) wrote READY with nothing to clear the flag. spawn moves an older
-    # READY aside, so one present belongs to the live generation.
+    # A bootstrap that finished after its spawn returned (a dialog held it, or its thread is another orb's) wrote READY with nothing to clear the
+    # flags. spawn moves an older READY aside, so one present belongs to the live generation.
     if (
         sidekick.get('bootstrap_pending') is True
-        and not rotation_required(store)
         and os.path.isfile(f'{store}/{ready_file(store, "sidekick")}')
         and agent_status(text_at(sidekick, 'name')) != 'absent'
     ):
