@@ -51,22 +51,10 @@ from ..wait import end_with_parent
 from .status import log
 
 
-def rotate(ctx, args, reason=None):
-    """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session.
-    Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over. `reason` is why
-    rotate_if_due rotates, which the rotate event records; the command itself (None) is `manual`, said only where a fresh session costs minutes
-    (mux reuses_sessions), like every rotation reason."""
-    end_with_parent()
-    require_mux()
-    if len(args) != 1:
-        raise Die(f'usage: {ctx.prog} rotate <store>')
-    store = args[0]
-    pair_file(store)
-    gitstore.refresh_saying_when_unknown(store)
-    require_not_paused(store)
-    kind = field(store, 'sidekick', 'kind')
-    sidekick = peek(load(store), 'sidekick')
-    # A replacement that never sent READY is no session to keep: it may be replaced again, whatever the unit before it did.
+def require_rotatable(store, sidekick, reason):
+    """Refuses a rotation the sidekick's state does not allow, and returns the reason the rotation records. A completed task asks for one; so does
+    a replacement that never sent READY, which is no session to keep and may be replaced again whatever the unit before it did (said in a line,
+    and recorded as `no READY` when the caller gave no reason)."""
     unready = sidekick.get('bootstrap_pending') is True and not os.path.isfile(
         f'{store}/{ready_file(store, "sidekick")}'
     )
@@ -83,6 +71,25 @@ def rotate(ctx, args, reason=None):
             'no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags',
             5,
         )
+    return reason
+
+
+def rotate(ctx, args, reason=None):
+    """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session.
+    Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over. `reason` is why
+    rotate_if_due rotates, which the rotate event records; the command itself (None) is `manual`, said only where a fresh session costs minutes
+    (mux reuses_sessions), like every rotation reason."""
+    end_with_parent()
+    require_mux()
+    if len(args) != 1:
+        raise Die(f'usage: {ctx.prog} rotate <store>')
+    store = args[0]
+    pair_file(store)
+    gitstore.refresh_saying_when_unknown(store)
+    require_not_paused(store)
+    kind = field(store, 'sidekick', 'kind')
+    sidekick = peek(load(store), 'sidekick')
+    reason = require_rotatable(store, sidekick, reason)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     if status in ('idle', 'done'):
