@@ -95,10 +95,14 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    have no open work: after a review note, an answered consult or a verdict,
    run `kitchen.sh snooze <store>`, call `update_thread` for each thread it
    lists (`{thread, snooze: "indefinite"}`), then `kitchen.sh snooze <store>
-   --done <thread>...`. When `dispatch`, `discuss`, `consult` or `steer`
-   refuses with `snoozed: <T> is snoozed`, call `update_thread({thread,
-   snooze: "off"})`, run `kitchen.sh snooze <store> --wake <T>`, and run the
-   command again. Snoozed or not, a role blocked on a question for the human or
+   --done <thread>...`. If `snooze --done` refuses (a master, or a thread that
+   is not snoozable now) after you already called `update_thread` with
+   `snooze: "indefinite"`, undo it with the call the refusal prints:
+   `update_thread({thread, snooze: "off"})`. When `dispatch`, `discuss`,
+   `consult`, `steer`, `stop` or `close` refuses with `snoozed: <T> is snoozed`
+   (every snoozed thread it would message is named; nothing was cleared, logged
+   or stopped), call `update_thread({thread, snooze: "off"})` for each, run
+   `kitchen.sh snooze <store> --wake <T>` for each, and run the command again. Snoozed or not, a role blocked on a question for the human or
    in an error only the human can fix (a `needs-human:` line in `status`, a
    `blocked` report with Questions, an approval dialog) is relayed to the human
    from your own thread. `PSTACK_SNOOZE_ROLES=0` stops new snoozing only; a thread
