@@ -1,0 +1,14 @@
+{
+ "args": [],
+ "generation": 4,
+ "kind": "amp",
+ "name": "kitchen-followups-master-g4",
+ "pane": "amp:18",
+ "relays": [],
+ "requests": [],
+ "role": "master",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "started": 1795540374,
+ "state": "started",
+ "thread": "T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8"
+}
