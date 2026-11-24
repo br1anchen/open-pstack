@@ -504,6 +504,9 @@ def merge_store(store, files, listed, base_files, reply=None):
             keep, conflict = local.get(rel, files.get(rel)), False
             if rel in local and rel in files and files[rel] != keep:
                 refused.append(rel)
+        elif reply is not None and rel not in files and rel in local:
+            # The reply lacks a file this side has: it was packed before the master wrote it, and a reply deletes nothing by omission.
+            keep, conflict = local[rel], False
         else:
             keep, conflict = merge_file(
                 rel, base_files.get(rel), local.get(rel), files.get(rel)
