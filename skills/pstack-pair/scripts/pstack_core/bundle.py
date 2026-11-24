@@ -228,8 +228,8 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest. A master's hand-over (`branches`) also
     carries every local branch: its name and tip in the manifest (git.branches), its commits in the same git bundle, cut only against
     origin's default branch (git.baseline), never against the remotes this side happens to have. Every send also carries the run's evidence refs
-    (keep_tips) of its own run in the same git bundle; only a hand-over fetches origin for its cut, an ordinary send is cut against the remotes
-    this side has."""
+    (keep_tips) of its own run in the same git bundle. A send that carries a hand-over or evidence is cut as a hand-over is, since a remote only this
+    side has is something the receiver may lack; a send with neither is cut against the remotes this side has and fetches nothing."""
     files, listed = store_files(store)
     root = repo_of(store)
     head = git.out(root, 'rev-parse', 'HEAD') if root else None
@@ -263,7 +263,7 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     if keeps:
         manifest['git'].update(keep=keeps)
         refs.update({f'keep/{name}': oid for name, oid in keeps.items()})
-    if head and branches:
+    if head and (branches or keeps):
         baseline = origin_baseline(root)
         manifest['git'].update(baseline=baseline)
         exclude = (baseline,) if baseline else ()
