@@ -38,13 +38,13 @@
 ## s4-hero-1258 master feedback (T-01a1feab-6ada-7110-87cc-63c074d88bde, 2026-11-21)
 
 - Items 1-4 (nesting: starts print no nest lines, archived threads cannot take a parent, take-master nests under the old master, `nest --done` unchecked): brief 040 nest-every-start.
-- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 045, the joo-mediums fix; one rule for when rotation_required is set and cleared.
-- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 045 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
+- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 046, the joo-mediums fix; one rule for when rotation_required is set and cleared.
+- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 046 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
 - `feedback` with no registered maintainer delivers nowhere useful (the report reached this run only by a thread message): retro feedback.
 
 ## ChenChess orb-mbx-warm feedback (T-01a1fed1-e978-74a5-a348-340b497bb301, 2026-11-23)
 
-- The landing verifier and the lander compile the same tree in two orbs (~17 min cold median vs 1m42s warm rerun): plan 041 verifier-lands (escalated, plan round), after the queued work. Joo-mediums fix is brief 045.
+- The landing verifier and the lander compile the same tree in two orbs (~17 min cold median vs 1m42s warm rerun): plan 041 verifier-lands (escalated, plan round), after the queued work. Joo-mediums fix is brief 046.
 
 ## 039 (joo 2026-11-23T20-14-04-846Z-ae62c835)
 
@@ -58,5 +58,5 @@
 
 ## 043 (joo 2026-11-23T22-03-17-839Z-801d9887)
 
-- snooze.py:181 (medium): `--done` checks eligibility after update_thread already snoozed the thread; on refusal the thread is snoozed in Amp but recorded awake. Fix: the refusal tells the master to undo it (`update_thread(thread=<T>, snooze="off")`), or `--done` records what was done and prints the warning. Brief 045 (snooze isn't used in this run until then).
-- 043 verdict observation: a dispatch to a snoozed sidekick runs classify and the archive sweep before `require_awake` refuses; move the check ahead of the sweep. Brief 045.
+- snooze.py:181 (medium): `--done` checks eligibility after update_thread already snoozed the thread; on refusal the thread is snoozed in Amp but recorded awake. Fix: the refusal tells the master to undo it (`update_thread(thread=<T>, snooze="off")`), or `--done` records what was done and prints the warning. Brief 046.
+- 043 verdict observation: a dispatch to a snoozed sidekick runs classify and the archive sweep before `require_awake` refuses; move the check ahead of the sweep. Brief 046.

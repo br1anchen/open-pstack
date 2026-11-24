@@ -136,3 +136,7 @@ ts	phase	decision	why	evidence	result
 2026-11-23T22:06:38Z	note	main moved to eb8228f9 outside this run (one live verifier per run)	git log daf51dc0..origin/main	'-	roster and snooze stacks rebase onto it at landing
 2026-11-23T22:17:57Z	archive	archive verifier T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8	no longer used by the store; its verdict is recorded	amp threads archive T-01a20a6f-74ed-7417-8fa1-73e8e13ee8e8	archived
 2026-11-23T22:18:08Z	review-043	038 and 043 accepted on clean verdict 043-v1	verdict 043-v1 clean; joo 801d9887 medium to 045	reviews/038, reviews/043	snooze stack ready to land (needs Brian's approval and a rebase onto eb8228f9)
+2026-11-23T22:41:54Z	review-044	044 joo: no findings; verifier 042+044 running; 040 dispatched from origin/main	joo 7223ad97	'-	on clean verdict: accept 042/044, then one rebase of roster+snooze stacks onto eb8228f9 for Brian's approval
+2026-11-23T23:00:45Z	archive	archive verifier T-01a20a91-9a8d-7284-baac-5a12ee34cb56	no longer used by the store; its verdict is recorded	amp threads archive T-01a20a91-9a8d-7284-baac-5a12ee34cb56	archived
+2026-11-23T23:01:08Z	land-3	042/044 accepted (verdict 044-v1); landing-rebase-3 queued after 040: snooze + roster stacks onto eb8228f9	verdicts 043-v1, 039-v1, 044-v1 clean	reviews/042, 044; briefs/045-landing-rebase-3.md	ask Brian to approve the third push
+2026-11-23T23:01:56Z	land-3	Brian approved the third push to main	Brian in this thread: push once landing-v3 is clean and land-check passes	'-	push after 045's landing verdict and land-check
