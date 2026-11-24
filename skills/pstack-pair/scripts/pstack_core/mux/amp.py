@@ -587,12 +587,12 @@ def role_is_idle(store, doc, role):
     if role == 'sidekick':
         queue = os.path.join(store, 'queue')
         queued = os.path.isfile(queue) and os.path.getsize(queue) > 0
-        dispatch = doc.get('dispatch') or {}
-        brief = dispatch.get('brief') or ''
-        sidekick = doc.get('sidekick') or {}
+        from ..send import took_a_brief
+
+        brief = (doc.get('dispatch') or {}).get('brief') or ''
         return (
-            sidekick.get('rotation_required') is True
-            and str(dispatch.get('generation')) == str(sidekick.get('generation'))
+            (doc.get('sidekick') or {}).get('rotation_required') is True
+            and took_a_brief(doc)
             and not doc.get('verifying')
             and not queued
             and bool(brief)
