@@ -131,3 +131,4 @@
 2026-11-24T00:02:36Z	1795478556	master	wake	040-nest-every-start	verify:progress
 2026-11-24T00:03:16Z	1795478596	master	nest	-	T-01a20adc-5f37-7342-8750-035095c532f7 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-24T00:03:42Z	1795478622	master	reuse	045-landing-rebase-3	sidekick: pstack, pstack-docs, context 27%
+2026-11-24T00:03:49Z	1795478629	master	send-brief	045-landing-rebase-3	
