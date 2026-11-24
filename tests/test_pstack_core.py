@@ -21465,7 +21465,7 @@ class BundleBranchApplyTests(BundleRepoCase):
             f'warn: could not keep {self.base} under refs/pstack/keep/bad..run/{self.base}\n',
         )
 
-    def test_an_ordinary_send_carries_only_its_own_runs_evidence_and_is_cut_like_a_hand_over(
+    def test_an_ordinary_send_carries_only_its_own_runs_evidence_and_is_cut_against_origins_default_branch_alone(
         self,
     ):
         mine, _ = self.send_evidence('ev-mine')
@@ -21490,7 +21490,7 @@ class BundleBranchApplyTests(BundleRepoCase):
         self,
     ):
         """A send cut against the sender's --remotes leaves out a commit only the sender's remotes hold; the evidence built on it then fails to
-        apply at a receiver that lacks it. The send is cut like a hand-over (origin_baseline), so it carries that commit."""
+        apply at a receiver that lacks it. The send is cut against origin's default branch alone, so it carries that commit."""
         remote_only = self.commit('remote-only')
         self.git('update-ref', 'refs/remotes/elsewhere/main', remote_only)
         evidence, path = self.send_evidence('ev-on-top')
@@ -21506,6 +21506,41 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertEqual(
             self.git('rev-parse', f'refs/pstack/keep/run1/{evidence}'), evidence
         )
+
+    def test_only_a_hand_over_fetches_origin_and_an_evidence_send_is_cut_at_the_tracking_ref(
+        self,
+    ):
+        self.git('remote', 'add', 'origin', str(Path(self.tmp.name) / 'no-such-origin'))
+        self.git('update-ref', 'refs/remotes/origin/main', self.base)
+        real, fetches = subprocess.run, []
+
+        def recording(argv, *args, **kwargs):
+            if 'fetch' in argv:
+                fetches.append(argv)
+            return real(argv, *args, **kwargs)
+
+        def send(branches=False):
+            path = Path(self.tmp.name) / 'counted.tgz'
+            with mock.patch.object(subprocess, 'run', recording):
+                return self.bundle.pack(
+                    str(self.store),
+                    str(path),
+                    {'name': 'm', 'thread': 'T-m'},
+                    {'name': 'w', 'pane': 'amp:2'},
+                    {},
+                    branches=branches,
+                )
+
+        plain = send()
+        self.assertEqual(fetches, [])
+        self.assertNotIn('baseline', plain['git'])
+        git.pin(str(self.repo), 'run1', self.commit('ev-1'))
+        evidence = send()
+        self.assertEqual(fetches, [])
+        self.assertEqual(evidence['git']['baseline'], self.base)
+        handover = send(branches=True)
+        self.assertEqual(len(fetches), 1)
+        self.assertEqual(handover['git']['baseline'], '')  # origin is unreachable
 
     def test_an_ordinary_message_whose_evidence_commit_is_missing_still_syncs_its_store_and_names_the_ref(
         self,
