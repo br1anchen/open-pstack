@@ -21272,6 +21272,38 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertEqual(fetch['timeout'], 9)
         self.assertEqual(fetch['env']['GIT_TERMINAL_PROMPT'], '0')
 
+    def test_the_receivers_unshallow_fetch_has_a_timeout_of_its_own(self):
+        self.unfetchable_origin_with_a_tracking_ref()
+        real, seen = subprocess.run, []
+
+        def shallow(argv, *args, **kwargs):
+            if 'rev-parse' in argv and '--is-shallow-repository' in argv:
+                return subprocess.CompletedProcess(argv, 0, 'true\n', '')
+            if 'fetch' in argv and 'origin' in argv:
+                seen.append((argv, kwargs['timeout']))
+            return real(argv, *args, **kwargs)
+
+        missing = Path(self.tmp.name) / 'no-such.bundle'
+        for env, expected in (
+            ({'PSTACK_BUNDLE_UNSHALLOW_TIMEOUT_S': '11'}, 11),
+            ({'PSTACK_BUNDLE_UNSHALLOW_TIMEOUT_S': '0'}, None),
+            ({}, 600),
+        ):
+            seen.clear()
+            with (
+                self.subTest(env),
+                mock.patch.dict(
+                    os.environ, {'PSTACK_BUNDLE_FETCH_TIMEOUT_S': '9', **env}
+                ),
+                mock.patch.object(subprocess, 'run', shallow),
+            ):
+                self.assertFalse(
+                    self.bundle.fetch(str(self.repo), str(missing), 'peer')
+                )
+            [(argv, timeout)] = seen
+            self.assertIn('--unshallow', argv)
+            self.assertEqual(timeout, expected)
+
     def test_older_ref_sets_of_one_sender_are_pruned_to_the_newest_few_and_the_applied_one_stays(
         self,
     ):
