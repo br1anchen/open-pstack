@@ -95,7 +95,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:3",
+    "pane_id": "amp:4",
     "kind": "claude",
     "started_at": null
   },
@@ -115,7 +115,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "000-landing-verify"
+  ],
   "anchor": {
     "thread": "T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8",
     "title": "kitchen-followups master",
@@ -352,7 +354,39 @@
   },
   "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
   "landing": {
-    "parent": "3b9514449d2a1f11c47e7388b76ae83876fb33aa",
-    "parent_ref": "3b951444"
+    "parent": "29cc53c2e8a65114086f9ec00042f5dd64d4b469",
+    "parent_ref": "origin/main"
+  },
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/landing-v6.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/landing-v6-packet.md",
+    "brief": "-",
+    "scratch": "000-landing-verify",
+    "units": "landing",
+    "risk": "landing",
+    "sample": 0,
+    "unit": "landing",
+    "started": 1795544600,
+    "deadline": 1795547300,
+    "class": "escalated",
+    "entry": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "claude-opus-5-5"
+      ],
+      "fallback": null,
+      "fallbacks": [],
+      "source": "default"
+    },
+    "retried": false,
+    "argv": [
+      "--landing",
+      "--parent",
+      "origin/main",
+      "--head",
+      "d7f3a4c99de4f15ae162744ae278faa8fe7b3cfc"
+    ],
+    "delivered": false
   }
 }
