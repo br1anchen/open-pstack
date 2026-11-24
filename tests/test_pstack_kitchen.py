@@ -18084,6 +18084,7 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(len(starts), 2)
         self.assertIn('--model zhipuai/glm-5.3 ', starts[-1])
         self.assertIn('--orb-size a1.small', starts[-1])
+        self.assertEqual(self.state()['sidekick']['permission_mode'], 'native-args')
         # The consultant too: its recorded entry starts when the call names no kind.
         self.run_sh(
             'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
@@ -18097,6 +18098,18 @@ class AmpKitchenTests(KitchenScriptTests):
             "spawn: no host roster here; starting the run's recorded consultant (amp c/one)",
             out,
         )
+        # Arguments the call passes are its own: the recorded entry's kind starts with them, and the run's permission mode is not forced to none.
+        self.run_sh('close', str(self.store), '--force', code=None)
+        self.run_sh('spawn', str(self.store), '--', '--model', 'other/model', code=4)
+        self.assertIn(
+            '--model other/model ',
+            [
+                line
+                for line in (self.fake / 'amp.log').read_text().splitlines()
+                if '--title demo-sidekick' in line and ' -ox ' in line
+            ][-1],
+        )
+        self.assertNotEqual(self.state()['sidekick']['permission_mode'], 'native-args')
         # A store that records none keeps today's error.
         bare = self.store.parent / 'bare'
         self.run_sh('init', 'bare', code=None)
