@@ -150,3 +150,5 @@
 2026-11-24T00:53:37Z	1795481617	master	log	-	land-3: pushed 699837d8 to main (eb8228f9..699837d8, 15 commits: 038, 043, 010, 039, 042, 044 via 045)
 2026-11-24T09:46:36Z	1795513596	master	reuse	046-snooze-stop-and-done	sidekick: pstack, pstack-docs, context 29%
 2026-11-24T09:46:45Z	1795513605	master	send-brief	046-snooze-stop-and-done	
+2026-11-24T09:47:07Z	1795513627	master	log	-	plan: 046 snooze-stop-and-done dispatched from main 699837d8; bundle/spawn mediums and s4-hero gaps 5-6 split to 047
+2026-11-24T10:57:13Z	1795517833	master	send-verify	046-snooze-stop-and-done	amp:046

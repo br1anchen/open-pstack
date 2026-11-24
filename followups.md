@@ -38,13 +38,13 @@
 ## s4-hero-1258 master feedback (T-01a1feab-6ada-7110-87cc-63c074d88bde, 2026-11-21)
 
 - Items 1-4 (nesting: starts print no nest lines, archived threads cannot take a parent, take-master nests under the old master, `nest --done` unchecked): brief 040 nest-every-start.
-- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 046, the joo-mediums fix; one rule for when rotation_required is set and cleared.
-- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 046 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
+- Item 5 (spawn after `close` keeps rotation_required, dispatch refuses after READY): with joo's spawn.py:226 medium (record_started clears rotation_required before READY) in brief 047, the joo-mediums fix; one rule for when rotation_required is set and cleared.
+- Item 6 (a fresh orb has no roster; spawn fails "no --kind and no [sidekick] kind"): units 010/039 carry the roster to the next master; brief 047 adds the fallback to pair.json `.sidekick.chain` (and the recorded entry for other roles) when the orb has no roster.
 - `feedback` with no registered maintainer delivers nowhere useful (the report reached this run only by a thread message): retro feedback.
 
 ## ChenChess orb-mbx-warm feedback (T-01a1fed1-e978-74a5-a348-340b497bb301, 2026-11-23)
 
-- The landing verifier and the lander compile the same tree in two orbs (~17 min cold median vs 1m42s warm rerun): plan 041 verifier-lands (escalated, plan round), after the queued work. Joo-mediums fix is brief 046.
+- The landing verifier and the lander compile the same tree in two orbs (~17 min cold median vs 1m42s warm rerun): plan 041 verifier-lands (escalated, plan round), after the queued work. Joo-mediums fix is brief 047.
 
 ## 039 (joo 2026-11-23T20-14-04-846Z-ae62c835)
 
@@ -73,3 +73,8 @@
 - master.md:93 (low): every CLI send or relay to a snoozed thread refuses, not only dispatch/discuss/consult/steer.
 - snooze.py:86 (note), snooze.py:177 (low): docstring vs own_thread check; a dedicated PairError subclass for snooze refusals.
 - landing-v3 note: `kitchen.sh help` does not list `snooze`. Brief 046.
+
+## Split (2026-11-24)
+
+- Brief 046 snooze-stop-and-done: the snooze findings (landing 3 joo, 043 joo medium, 043 verdict observation, help line).
+- Brief 047 (next): the second landing's joo mediums (bundle.py:379, :173, :258; spawn.py:226), s4-hero gaps 5-6. The 040 low (process_prog) and nest.py lows go with 040's landing, since 040 changes nest.py and is not on main.
