@@ -60,3 +60,8 @@
 
 - snooze.py:181 (medium): `--done` checks eligibility after update_thread already snoozed the thread; on refusal the thread is snoozed in Amp but recorded awake. Fix: the refusal tells the master to undo it (`update_thread(thread=<T>, snooze="off")`), or `--done` records what was done and prints the warning. Brief 046.
 - 043 verdict observation: a dispatch to a snoozed sidekick runs classify and the archive sweep before `require_awake` refuses; move the check ahead of the sweep. Brief 046.
+
+## 040 (joo 2026-11-24T00-02-06-571Z-21c69123)
+
+- nest.py:310 (low): `process_prog()` re-parses sys.argv and reloads the variant for the program name; pass `ctx.prog` down instead. Brief 046.
+- 040 behaviour change: take-master keeps the old master (`kept: nest pending`) until `nest --done`; a later sweep archives it.

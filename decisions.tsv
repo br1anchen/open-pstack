@@ -140,3 +140,6 @@ ts	phase	decision	why	evidence	result
 2026-11-23T23:00:45Z	archive	archive verifier T-01a20a91-9a8d-7284-baac-5a12ee34cb56	no longer used by the store; its verdict is recorded	amp threads archive T-01a20a91-9a8d-7284-baac-5a12ee34cb56	archived
 2026-11-23T23:01:08Z	land-3	042/044 accepted (verdict 044-v1); landing-rebase-3 queued after 040: snooze + roster stacks onto eb8228f9	verdicts 043-v1, 039-v1, 044-v1 clean	reviews/042, 044; briefs/045-landing-rebase-3.md	ask Brian to approve the third push
 2026-11-23T23:01:56Z	land-3	Brian approved the third push to main	Brian in this thread: push once landing-v3 is clean and land-check passes	'-	push after 045's landing verdict and land-check
+2026-11-24T00:04:10Z	review-040	040 joo: 1 low (prog from sys.argv); verifier 040 running; 045 landing rebase dispatched	joo 21c69123	followups.md	push the third landing on clean landing-v3 + land-check (Brian approved)
+2026-11-24T00:16:47Z	archive	archive verifier T-01a20adc-5f37-7342-8750-035095c532f7	no longer used by the store; its verdict is recorded	amp threads archive T-01a20adc-5f37-7342-8750-035095c532f7	archived
+2026-11-24T00:17:03Z	review-040	040 accepted on clean verdict 040-v1	verdict 040-v1; joo 21c69123 low	reviews/040	lands in a later push; 045 running
