@@ -4927,7 +4927,7 @@ esac
         out = self.dispatch(self.brief('004', 'disp', ['src/util.py']))
         self.assertIn('warn: Scope covers src/util.py', out)
 
-    def test_dispatch_warns_on_an_escalated_brief_with_no_plan(self):
+    def test_dispatch_prints_a_warning_for_an_escalated_brief_with_no_plan(self):
         warn = 'warn: escalated brief has plan: none'
         routine = self.run_sh(
             'classify', str(self.store), str(self.brief('001', 'r', ['src/util.py']))
