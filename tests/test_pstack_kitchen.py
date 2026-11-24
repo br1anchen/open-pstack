@@ -15990,6 +15990,15 @@ class AmpKitchenTests(KitchenScriptTests):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.set_state(amp_thread(1), 'tool_use')
 
+    def sidekick_done_idle_in_a_store_that_records_no_generation(self):
+        """A store from before generations were recorded: neither the sidekick nor its dispatch names one, so the done report is this sidekick's."""
+        thread = self.sidekick_done_idle()
+        pair = self.state()
+        pair['sidekick'].pop('generation', None)
+        pair['dispatch'].pop('generation', None)
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        return thread
+
     def sidekick_fresh_generation_not_yet_dispatched(self):
         """A rotation whose new thread wrote READY and kept the rotation flag: the done report on file belongs to the previous generation."""
         thread = self.sidekick_done_idle()
@@ -16042,6 +16051,7 @@ class AmpKitchenTests(KitchenScriptTests):
             ('a sidekick under verification', self.sidekick_under_verification, False, 2),
             ('a sidekick in a turn', self.sidekick_in_a_turn, False, 2),
             ('a fresh generation not yet dispatched to', self.sidekick_fresh_generation_not_yet_dispatched, False, 2),
+            ('a done sidekick in a store with no generations', self.sidekick_done_idle_in_a_store_that_records_no_generation, True, 1),
             ('a sidekick with a partial report', self.sidekick_partial, False, 2),
             ('a sidekick with an open dispatch', self.sidekick_with_an_open_dispatch, False, 2),
             ('a consultant, all advice answered', lambda: self.consultant_with(True), True, 2),
