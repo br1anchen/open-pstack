@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from .. import mux
-from ..errors import Die, ToolFailed
+from ..errors import Die, SnoozeRefused
 from ..store import event, load, pair_file
 
 TSV = 'snooze.tsv'
@@ -89,7 +89,8 @@ def why_not(store, thread, role):
 
 def candidates(store, rows=None):
     """[(thread, role)] of the role threads the master may snooze now and has not recorded snoozed: the rows `threads` lists (`rows`, when the caller
-    has them), minus masters and threads that are not this store's. Empty with snoozing off, and for any thread but the master's."""
+    has them), minus those with a `no store recorded` row, those already recorded snoozed, and any why_not refuses (so masters too). Empty with
+    snoozing off. The rows come from `thread_rows`, which is empty unless the caller runs in the master's own thread."""
     if not enabled():
         return []
     rows = mux.get().thread_rows(store) if rows is None else rows
@@ -173,12 +174,15 @@ def record(store, snoozing, threads, roles):
     for thread in dict.fromkeys(threads) if snoozing else ():
         if state_of(store, thread) == SNOOZED:
             continue
+        undo = f'; if you already called update_thread(... snooze="indefinite"), undo it: update_thread(thread={thread}, snooze="off")'
         if roles[thread] == 'master':
-            raise ToolFailed(
-                1, f'snooze: {thread} is a master thread; masters are never snoozed'
+            raise SnoozeRefused(
+                f'snooze: {thread} is a master thread; masters are never snoozed{undo}'
             )
         if reason := why_not(store, thread, roles[thread]):
-            raise ToolFailed(1, f'snooze: {thread} is not snoozable now ({reason})')
+            raise SnoozeRefused(
+                f'snooze: {thread} is not snoozable now ({reason}){undo}'
+            )
     for thread in dict.fromkeys(threads):
         if state_of(store, thread) == want or (
             want == AWAKE and not state_of(store, thread)
