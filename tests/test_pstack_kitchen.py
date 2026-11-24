@@ -18050,6 +18050,47 @@ class AmpKitchenTests(KitchenScriptTests):
                     )
                     self.assertEqual(self.state()['sidekick']['generation'], 3)
 
+    def test_spawn_on_an_orb_with_no_host_roster_starts_the_runs_recorded_sidekick_and_consultant(
+        self,
+    ):
+        """The orb has no roster (the test's roster file does not exist) and the call names no --kind: the entry the run recorded in pair.json
+        starts, with its kind and start arguments, and a line says so."""
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(self.store.parent / 'no-roster.toml')
+        self.run_sh('close', str(self.store), '--force', code=None)
+        recorded = self.state()['sidekick']
+        self.assertEqual(recorded['kind'], 'amp')
+        out = self.run_sh('spawn', str(self.store), code=4)
+        self.assertIn(
+            "spawn: no host roster here; starting the run's recorded sidekick (amp zhipuai/glm-5.3)",
+            out,
+        )
+        starts = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title demo-sidekick' in line and ' -ox ' in line
+        ]
+        self.assertEqual(len(starts), 2)
+        self.assertIn('--model zhipuai/glm-5.3 ', starts[-1])
+        self.assertIn('--orb-size a1.small', starts[-1])
+        # The consultant too: its recorded entry starts when the call names no kind.
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.run_sh('close', str(self.store), '--force', code=None)
+        out = self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract again', code=4
+        )
+        self.assertIn(
+            "spawn: no host roster here; starting the run's recorded consultant (amp c/one)",
+            out,
+        )
+        # A store that records none keeps today's error.
+        bare = self.store.parent / 'bare'
+        self.run_sh('init', 'bare', code=None)
+        out = self.run_sh('spawn', str(bare), code=1)
+        self.assertIn('no --kind and no [sidekick] kind in the host roster', out)
+
     def test_a_dispatch_after_a_failover_that_followed_a_done_unit_is_sent_once_ready(
         self,
     ):

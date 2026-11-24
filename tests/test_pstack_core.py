@@ -13929,8 +13929,8 @@ class CoreTests(unittest.TestCase):
             '--kind with no value': (1, 'pair.sh: --kind needs a value'),
             '--fallback with no value': (1, 'pair.sh: --fallback needs a value'),
             'an empty roster and no --kind': (
-                1,
-                'pair.sh: no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)',
+                0,
+                "spawn: no host roster here; starting the run's recorded sidekick (claude)",
             ),
             'an empty roster and a --kind': (0, 'started in'),
             'a roster that does not parse': (
@@ -14054,8 +14054,8 @@ class CoreTests(unittest.TestCase):
                 'pair.json is damaged: escalations is string, not an array',
             ),
             'an empty roster and no --kind': (
-                1,
-                'pair.sh: no --kind and no [consultant] kind in the host roster',
+                0,
+                "spawn: no host roster here; starting the run's recorded consultant (codex)",
             ),
             'a roster that does not parse': (
                 1,
