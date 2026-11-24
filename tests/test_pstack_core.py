@@ -17008,6 +17008,20 @@ class CoreTests(unittest.TestCase):
                 stale('rel', 'nothere'),
             ),
             (
+                'a recorded parent behind trunk',
+                {'landing': {'parent': shas['base'], 'parent_ref': 'rel'}},
+                {},
+                0,
+                f'landing base: recorded parent rel ({short(shas["base"])}) is behind remotes/origin/main; using the merge-base of remotes/origin/main and HEAD ({short(trunk)})\n',
+            ),
+            (
+                'an override behind trunk',
+                {},
+                {'override': shas['base'], 'label': 'given', 'rev': shas['base']},
+                0,
+                f'landing base: recorded parent given ({short(shas["base"])})\n',
+            ),
+            (
                 'an override that is an ancestor',
                 {},
                 {'override': trunk, 'label': 'given'},
@@ -17095,7 +17109,8 @@ class CoreTests(unittest.TestCase):
             )
             prc, got, perr = self.kitchen_py(st, py, cwd=repo)
             if status == 0:
-                self.assertEqual((got, perr), (said + f'rev={trunk}\nrc=0\n', ''), name)
+                rev = opts.get('rev', trunk)
+                self.assertEqual((got, perr), (said + f'rev={rev}\nrc=0\n', ''), name)
             else:
                 self.assertEqual((got, perr), ('rc=1\n', 'pair.sh: ' + said), name)
         # no trunk, and a head on the trunk
