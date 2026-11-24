@@ -95,3 +95,8 @@
 - snooze.py:177: a refused multi-thread --done does not say the accepted ones were unrecorded; SKILL.md:567 claims the undo hint for the unknown-thread refusal too.
 - dispatch.py:101: pre-check skips rotate_if_due's gitstore refresh.
 - Tests: nest archived test needs a non-archived row; stop --only; rotates_before_sending failed-over/bootstrap-pending branches.
+
+## Landing stack 5 (joo 2026-11-24T15-45-18-525Z-a6ad980e on 3b951444..29cc53c2): lows only, mostly the landing-4 ones again
+
+- New: SKILL.md:336 still says close archives every remaining role, but a nest-pending role is kept; nest.py:136 module docstring says a master is never nested under a master, while take_anchor now nests earlier masters under the new one (as s4-hero item 3 asked) and discover() still skips them: make the docstring and discover agree.
+- Repeats of landing 4: dispatch.py snooze pre-check copies rotate_if_due's rule (three lows), nest lines printed from Amp.send, process_prog from sys.argv, multi-thread --done refusal, SKILL.md:567 undo-hint claim, rotates_before_sending branch tests.
