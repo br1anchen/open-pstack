@@ -170,3 +170,7 @@
 2026-11-24T12:24:20Z	1795523060	master	wake	047-bundle-and-rotation-fixes	checkin
 2026-11-24T12:24:21Z	1795523061	master	log	-	steer-047: 047 blocked by two gate failures at step 4 (Die in a helper); steered to RotateRefused, then steps 5-6
 2026-11-24T13:17:59Z	1795526279	master	send-verify	047-bundle-and-rotation-fixes	amp:047
+2026-11-24T13:18:11Z	1795526291	master	nest-pending	-	T-01a20db4-e855-7372-bf97-96acf34ecdf4 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T13:18:19Z	1795526299	master	wake	047-bundle-and-rotation-fixes	verify:progress
+2026-11-24T13:19:01Z	1795526341	master	nest	-	T-01a20db4-e855-7372-bf97-96acf34ecdf4 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T13:19:11Z	1795526351	master	rotate	-	generation:17
