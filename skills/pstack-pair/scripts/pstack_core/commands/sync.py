@@ -138,9 +138,21 @@ def sync(ctx, args):
         path = fetch(args[0], tmp)
         try:
             manifest = bundle.read_bundle(path)[0]
-            sent = amp.sent_path(manifest.get('from') or '')
+            sender = manifest.get('from') or ''
             reply = bundle.role_reply(manifest, recorded_thread)
-            manifest, lines = bundle.apply(path, sent, reply)
+            # A reply is merged against the bundle it names as synced; any other bundle against the last one this side sent.
+            base = (
+                amp.kept_sent_path(sender, manifest.get('synced'))
+                if reply
+                else amp.sent_path(sender)
+            )
+            manifest, lines = bundle.apply(path, base, reply)
+            if reply and reply.role and base is None:
+                lines.insert(
+                    0,
+                    f"merge: the reply's base {manifest.get('synced') or '(none named)'} is not kept; files it lacks are kept",
+                )
+            amp.record_applied(sender, manifest.get('id'))
         except (OSError, ValueError, KeyError) as e:
             raise Die(f'{args[0]}: {e}') from None
     for line in lines:

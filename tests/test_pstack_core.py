@@ -20735,37 +20735,206 @@ class BundleMergeTests(unittest.TestCase):
         self.assertFalse((self.store / 'briefs.md').exists())
         self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
 
-    def reply_lacking(self, rel):
-        """The sidekick's reply, packed after it deleted `rel`, and the bundle this side sent it last (the base), which still holds `rel`."""
-        self.write(rel, 'base\n')
-        base = self.pack('base.tgz')
-        (self.store / rel).unlink()
-        incoming = self.pack('incoming.tgz')
-        self.write(rel, 'base\n')
-        return incoming, base
-
-    def test_a_reply_deletes_a_file_its_own_role_deleted_and_keeps_one_the_master_wrote_after_its_snapshot(
+    def test_a_late_reply_never_deletes_a_file_the_master_wrote_after_its_snapshot(
         self,
     ):
-        """reports/ is the sidekick's. The reply lacks a report either because the sidekick deleted it (this side still has it as the base had it:
-        the deletion goes through) or because the master wrote it after the reply's snapshot (this side's copy differs from the base, or the base
-        lacks it: it stays)."""
-        for label, change, kept in (
-            ('the role deleted its own unchanged file', None, None),
-            ('the master changed it after the base', 'changed\n', 'changed\n'),
-        ):
+        """The reply was packed before the master wrote a gates-mode verdict, and the base is the newer bundle the master sent the role since: the
+        reply lacks the verdict, and a file its sender did not write is not its to delete."""
+        incoming = self.pack('incoming.tgz')
+        (self.store / 'verdicts').mkdir()
+        self.write('verdicts/001-x-v1.md', 'status: clean\n')
+        base = self.pack('base.tgz')
+        for role in ('verifier', 'sidekick'):
+            with self.subTest(role=role):
+                self.write('verdicts/001-x-v1.md', 'status: clean\n')
+                self.bundle.apply(incoming, base, self.bundle.Reply(role))
+                self.assertEqual(self.read('verdicts/001-x-v1.md'), 'status: clean\n')
+
+
+class BundleReplySyncTests(unittest.TestCase):
+    """The master's `sync` of a role's reply merges it against the bundle the reply names as synced, kept under that id, not against the newest
+    bundle the master sent the role."""
+
+    ROLES = {
+        'sidekick': ('sk', 'T-sk', 'reports/001-x.md'),
+        'verifier': ('vf', 'T-vf', 'verdicts/001-x-v1.md'),
+    }
+
+    def setUp(self):
+        from pstack_core import bundle
+        from pstack_core.commands import sync
+        from pstack_core.mux import amp
+
+        self.bundle, self.sync, self.amp = bundle, sync, amp
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = mock.patch.dict(
+            os.environ, {'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state')}
+        )
+        env.start()
+        self.addCleanup(env.stop)
+        self.store = Path(self.tmp.name) / 'store'
+        self.store.mkdir()
+        (self.store / 'pair.json').write_text(
+            json.dumps(
+                {
+                    'master': {'name': 'm', 'generation': 1},
+                    'sidekick': {'name': 'sk', 'kind': 'amp'},
+                    'verifier': {'name': 'vf', 'kind': 'amp'},
+                }
+            )
+        )
+        registry = Path(self.amp.registry_path())
+        registry.parent.mkdir(parents=True)
+        registry.write_text(
+            json.dumps(
+                {
+                    'agents': {
+                        'sk': {
+                            'kind': 'amp',
+                            'args': [],
+                            'thread': 'T-sk',
+                            'pane': 'amp:1',
+                        },
+                        'vf': {
+                            'kind': 'amp',
+                            'args': [],
+                            'thread': 'T-vf',
+                            'pane': 'amp:3',
+                        },
+                    },
+                    'panes': ['amp:1', 'amp:3'],
+                }
+            )
+        )
+
+    def write(self, rel, text):
+        path = self.store / rel
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text)
+
+    def send_to_role(self, role, name):
+        """The master sends the role a bundle of the store as it is, and keeps it as it does for every message: its id."""
+        who, thread, _ = self.ROLES[role]
+        path = Path(self.tmp.name) / name
+        manifest = self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': who, 'pane': 'amp:1'},
+            {},
+        )
+        self.amp.keep_sent_bundle(thread, ['--attach', str(path)])
+        return manifest['id']
+
+    def reply_from(self, role, name, synced):
+        """The role's reply: the store as it is now, packed by the role naming `synced` as the bundle it had applied."""
+        who, thread, _ = self.ROLES[role]
+        path = Path(self.tmp.name) / name
+        self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': who, 'thread': thread},
+            {'name': 'm', 'pane': 'amp:T-m'},
+            {},
+            synced=synced,
+        )
+        return path
+
+    def sync_reply(self, path):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.sync.sync(SimpleNamespace(prog='pair.sh'), [str(path)])
+        return out.getvalue()
+
+    def test_a_reply_deletes_what_its_role_had_and_deleted_and_keeps_what_the_master_wrote_after_its_snapshot(
+        self,
+    ):
+        """Each row is the master's store before the reply arrives: `kept` says whether the file the reply lacks is still there after the sync."""
+        unknown = "merge: the reply's base {} is not kept; files it lacks are kept"
+        rows = (
+            ('a: the master wrote it after the role\'s snapshot', 'sidekick', 'late', True, None),
+            ('a: the same for a verifier', 'verifier', 'late', True, None),
+            ('b: the role deleted its own unchanged file', 'sidekick', 'deleted', False, None),
+            ('b: the same, after a newer bundle was sent', 'sidekick', 'deleted-newer', False, None),
+            ('b: the same for a verifier', 'verifier', 'deleted', False, None),
+            ('c: the reply names a bundle that is not kept', 'sidekick', 'deleted', True, 'bogus-id'),
+            ('c: the reply names none', 'verifier', 'deleted', True, ''),
+        )  # fmt: skip
+        for n, (label, role, how, kept, synced) in enumerate(rows):
             with self.subTest(label):
-                incoming, base = self.reply_lacking('reports/001-x.md')
-                if change:
-                    self.write('reports/001-x.md', change)
-                self.bundle.apply(incoming, base, self.bundle.Reply('sidekick'))
-                path = self.store / 'reports/001-x.md'
-                self.assertEqual(path.read_text() if path.exists() else None, kept)
-        with self.subTest('the master wrote a new file after the base'):
-            incoming, base = self.reply_lacking('reports/001-x.md')
-            self.write('reports/002-new.md', 'mine\n')
-            self.bundle.apply(incoming, base, self.bundle.Reply('sidekick'))
-            self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
+                if n:
+                    self.tearDown_state()
+                rel = self.ROLES[role][2]
+                if how == 'late':
+                    snapshot = self.send_to_role(role, 'snapshot.tgz')
+                    reply = self.reply_from(role, 'reply.tgz', snapshot)
+                    self.write(rel, 'written by the master\n')
+                    self.send_to_role(role, 'newer.tgz')
+                else:
+                    self.write(rel, 'base\n')
+                    snapshot = self.send_to_role(role, 'snapshot.tgz')
+                    (self.store / rel).unlink()
+                    reply = self.reply_from(
+                        role, 'reply.tgz', snapshot if synced is None else synced
+                    )
+                    self.write(rel, 'base\n')
+                    if how == 'deleted-newer':
+                        self.send_to_role(role, 'newer.tgz')
+                out = self.sync_reply(reply)
+                self.assertEqual((self.store / rel).exists(), kept, out)
+                if synced is not None:
+                    self.assertIn(unknown.format(synced or '(none named)'), out)
+                else:
+                    self.assertNotIn('is not kept', out)
+
+    def tearDown_state(self):
+        """A fresh store, registry and kept bundles for the next row."""
+        shutil.rmtree(self.store)
+        shutil.rmtree(Path(self.amp.state_dir()) / 'sent', ignore_errors=True)
+        (Path(self.amp.state_dir()) / 'applied.json').unlink(missing_ok=True)
+        self.store.mkdir()
+        (self.store / 'pair.json').write_text(
+            json.dumps(
+                {
+                    'master': {'name': 'm', 'generation': 1},
+                    'sidekick': {'name': 'sk', 'kind': 'amp'},
+                    'verifier': {'name': 'vf', 'kind': 'amp'},
+                }
+            )
+        )
+
+    def test_a_bundle_names_the_last_one_applied_from_its_receiver_and_the_newest_few_sent_are_kept(
+        self,
+    ):
+        who, thread, _ = self.ROLES['sidekick']
+        self.assertEqual(self.amp.applied_id(thread), '')
+        first = self.send_to_role('sidekick', 'first.tgz')
+        self.assertEqual(
+            self.bundle.read_manifest(Path(self.tmp.name) / 'first.tgz')['synced'], ''
+        )
+        # The reply is applied here: the next bundle this side sends that thread names it.
+        reply = self.reply_from('sidekick', 'reply.tgz', first)
+        self.sync_reply(reply)
+        applied = self.bundle.read_manifest(reply)['id']
+        self.assertEqual(self.amp.applied_id(thread), applied)
+        path = Path(self.tmp.name) / 'second.tgz'
+        manifest = self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': who, 'pane': 'amp:1'},
+            {},
+            synced=self.amp.applied_id(thread),
+        )
+        self.assertEqual(manifest['synced'], applied)
+        ids = [first]
+        with mock.patch.dict(os.environ, {'PSTACK_BUNDLE_KEEP': '3'}):
+            for n in range(4):
+                ids.append(self.send_to_role('sidekick', f'more-{n}.tgz'))
+        kept = [i for i in ids if self.amp.kept_sent_path(thread, i)]
+        self.assertEqual(kept, ids[-3:])
+        self.assertIsNone(self.amp.kept_sent_path(thread, '../' + ids[-1]))
 
 
 class BundleRepoCase(unittest.TestCase):

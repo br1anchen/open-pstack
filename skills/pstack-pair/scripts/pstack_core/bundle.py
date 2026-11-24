@@ -89,6 +89,18 @@ def member_bytes(tar, member):
     return f.read() if f is not None else b''
 
 
+def read_manifest(path):
+    """The manifest of a bundle file alone."""
+    with tarfile.open(path, 'r:gz') as tar:
+        for member in tar:
+            if member.name == MANIFEST:
+                manifest = json.loads(member_bytes(tar, member))
+                if isinstance(manifest, dict):
+                    return manifest
+                break
+    raise ValueError(f'{path} is not a pstack bundle: it has no manifest')
+
+
 def read_bundle(path):
     """(manifest, {relative path: content}, git bundle bytes or None) of a bundle file."""
     files, manifest, gitdata = {}, None, None
@@ -228,9 +240,10 @@ def origin_baseline(root):
     return tracking_baseline(root) if fetch_origin(root) else ''
 
 
-def pack(store, path, sender, to, agents, text='', branches=False):
+def pack(store, path, sender, to, agents, text='', branches=False, synced=''):
     """Writes the bundle of store to path, from `sender` ({name, thread}) to the agent `to` ({name, pane}), carrying the agents this side
-    knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest. A master's hand-over (`branches`) also
+    knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest, whose `id` names the bundle and whose `synced`
+    is the id of the bundle this side last applied from the receiver ('' when none): the base the receiver merges a reply against. A master's hand-over (`branches`) also
     carries every local branch: its name and tip in the manifest (git.branches), its commits in the same git bundle, cut only against
     origin's default branch (git.baseline), never against the remotes this side happens to have, and fetches origin first (origin_baseline). Every
     send also carries the run's evidence refs (keep_tips) of its own run in the same git bundle. A send that carries evidence is cut against
@@ -244,6 +257,7 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     manifest = {
         'version': 1,
         'id': f'{time.time_ns():020d}-{uuid.uuid4().hex[:12]}',
+        'synced': synced,
         'from': sender.get('thread', ''),
         'from_name': sender.get('name', ''),
         'to': to,
@@ -491,11 +505,12 @@ def write_file(path, data):
     os.replace(tmp, path)
 
 
-def merge_store(store, files, listed, base_files, reply=None):
+def merge_store(store, files, listed, base_files, reply=None, based=True):
     """Merges the sender's files into store; (lines to print). A reply (role_reply) changes only the paths its sender's role owns (owned_by): pair.json takes only the
     sidekick's completion, any other file stays as this side has it (a file this side lacks is added, except a master-owned one), a file of the
-    sender's own role that the reply lacks is deleted only when this side still has it as the base had it (one this side wrote or changed since
-    stays), and a shared log the reply lacks stays as it is."""
+    sender's own role that the reply lacks is deleted only when the reply's base is known (`based`: it is the bundle the reply synced) and this side
+    still has the file as the base had it (one this side wrote or changed since stays); with an unknown base nothing is deleted. A shared log the
+    reply lacks stays as it is."""
     local, _ = store_files(store)
     changed, removed, conflicts, refused, completed = 0, 0, [], [], False
     for rel in sorted(set(local) | set(files) | set(base_files)):
@@ -524,7 +539,7 @@ def merge_store(store, files, listed, base_files, reply=None):
             reply is not None
             and rel not in files
             and rel in local
-            and local[rel] != base_files.get(rel, MISSING)
+            and (not based or local[rel] != base_files.get(rel, MISSING))
         ):
             # The reply lacks a file of its sender's role that this side wrote or changed since the base: it was packed before the master did, so
             # the file stays. A file this side still has as the base had it is one the role deleted, and the deletion goes through merge_file.
@@ -921,12 +936,19 @@ def move_git(manifest, sender, keep):
 
 
 def apply(path, base=None, reply=None):
-    """Merges the bundle at path into this machine, against the bundle this side last sent to its sender (base, a path or None), as a role's
-    reply to the master when `reply` (role_reply) says so. (manifest, lines to print). A hand-over's commits are imported before any store file or
+    """Merges the bundle at path into this machine, against the bundle this side sent to its sender (base, a path or None), as a role's
+    reply to the master when `reply` (role_reply) says so. A reply's base counts only when its id is the one the reply names as `synced`; else
+    the reply deletes nothing and a line says so. (manifest, lines to print). A hand-over's commits are imported before any store file or
     ref changes, so one that cannot be taken raises ValueError with this machine as it was."""
     keep = env_int(KEEP_ENV, 8)
     manifest, files, gitdata = read_bundle(path)
-    base_files = read_bundle(base)[1] if base and os.path.isfile(base) else {}
+    base_manifest, base_files = (
+        read_bundle(base)[:2] if base and os.path.isfile(base) else ({}, {})
+    )
+    # A reply's base is the bundle it names as synced; with any other base, or none, it is unknown and the reply deletes nothing.
+    based = reply is None or base_manifest.get('id') == manifest.get('synced')
+    if not based:
+        base_files = {}
     store = manifest.get('store') or ''
     if not os.path.isabs(store):
         raise ValueError(f'{path}: the manifest names no store')
@@ -934,7 +956,7 @@ def apply(path, base=None, reply=None):
     os.makedirs(store, exist_ok=True)
     sender = manifest.get('from_name') or manifest.get('from') or 'the sender'
     lines = merge_store(
-        store, files, set(manifest.get('files') or ()), base_files, reply
+        store, files, set(manifest.get('files') or ()), base_files, reply, based
     )
     lines += imported
     if ready:
