@@ -1,0 +1,3 @@
+1	3e3b1df3e871f0ba01951dce2b5cdc201829b7c4	1795519643		a reply deletes nothing by omission
+2	dabf4638cbd528bcba01a56f20cf5248bc20a333	1795520411		unreachable origin: self-contained bundle; bounded origin fetches
+3	42f676e9c7cb1bb6792cf7b48f532fa1141e952f	1795521186		evidence survives an ordinary send

@@ -33,3 +33,14 @@
 2026-11-24T10:56:14Z	1795517774	sidekick	finish-verify-pass	046-snooze-stop-and-done	11d2874b6
 2026-11-24T10:56:14Z	1795517774	sidekick	rotation-required	046-snooze-stop-and-done	generation:17 sha256:b3aa66d51f71
 2026-11-24T10:56:20Z	1795517780	sidekick	report	046-snooze-stop-and-done	done
+2026-11-24T11:16:36Z	1795518996	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T11:27:23Z	1795519643	sidekick	step	047-bundle-and-rotation-fixes	1:3e3b1df3e
+2026-11-24T11:29:37Z	1795519777	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T11:40:11Z	1795520411	sidekick	step	047-bundle-and-rotation-fixes	2:dabf4638c
+2026-11-24T11:42:47Z	1795520567	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T11:53:06Z	1795521186	sidekick	step	047-bundle-and-rotation-fixes	3:42f676e9c
+2026-11-24T11:59:38Z	1795521578	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T12:09:45Z	1795522185	sidekick	gate-fail	047-bundle-and-rotation-fixes	1e15329ce /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/047-bundle-and-rotation-fixes-1e15329ce7a8/out.1
+2026-11-24T12:11:51Z	1795522311	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T12:22:44Z	1795522964	sidekick	gate-fail	047-bundle-and-rotation-fixes	42b6e081a /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/047-bundle-and-rotation-fixes-42b6e081aa09/out.1
+2026-11-24T12:23:25Z	1795523005	sidekick	report	047-bundle-and-rotation-fixes	blocked
