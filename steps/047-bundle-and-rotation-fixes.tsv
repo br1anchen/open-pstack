@@ -1,3 +1,6 @@
 1	3e3b1df3e871f0ba01951dce2b5cdc201829b7c4	1795519643		a reply deletes nothing by omission
 2	dabf4638cbd528bcba01a56f20cf5248bc20a333	1795520411		unreachable origin: self-contained bundle; bounded origin fetches
 3	42f676e9c7cb1bb6792cf7b48f532fa1141e952f	1795521186		evidence survives an ordinary send
+4	ce25a435f37cbe386f764a9b6f81498c2cdc7f33	1795523806		READY clears the rotation flag; an unready bootstrap can be rotated again
+5	a1a7cca9f9acf6e6e0ccfcab8b184c726efd3293	1795524754		spawn without a host roster starts the run's recorded entry
+6	973660250d7aa41552d66f9f0e837c38f6006699	1795525478		docs for the bundle and rotation fixes

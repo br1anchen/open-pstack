@@ -44,3 +44,12 @@
 2026-11-24T12:11:51Z	1795522311	sidekick	progress	047-bundle-and-rotation-fixes	
 2026-11-24T12:22:44Z	1795522964	sidekick	gate-fail	047-bundle-and-rotation-fixes	42b6e081a /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/047-bundle-and-rotation-fixes-42b6e081aa09/out.1
 2026-11-24T12:23:25Z	1795523005	sidekick	report	047-bundle-and-rotation-fixes	blocked
+2026-11-24T12:25:36Z	1795523136	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T12:36:46Z	1795523806	sidekick	step	047-bundle-and-rotation-fixes	4:ce25a435f
+2026-11-24T12:41:46Z	1795524106	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T12:52:34Z	1795524754	sidekick	step	047-bundle-and-rotation-fixes	5:a1a7cca9f
+2026-11-24T12:53:56Z	1795524836	sidekick	progress	047-bundle-and-rotation-fixes	
+2026-11-24T13:04:38Z	1795525478	sidekick	step	047-bundle-and-rotation-fixes	6:973660250
+2026-11-24T13:16:57Z	1795526217	sidekick	finish-verify-pass	047-bundle-and-rotation-fixes	973660250
+2026-11-24T13:16:57Z	1795526217	sidekick	rotation-required	047-bundle-and-rotation-fixes	generation:17 sha256:8cc22404ccaa
+2026-11-24T13:17:00Z	1795526220	sidekick	report	047-bundle-and-rotation-fixes	done

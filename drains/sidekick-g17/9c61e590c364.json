@@ -1,12 +1,12 @@
 {
  "code": [
-  "42b6e081aa0964ab95c25d4dd85e60bb20ac7994"
+  "973660250d7aa41552d66f9f0e837c38f6006699"
  ],
  "generation": 17,
  "outputs": [
   {
    "path": "reports/047-bundle-and-rotation-fixes.md",
-   "sha256": "020c7b18dd7118cd72ef49a66685172456c6477db032cea89a9081e2e7d5c233"
+   "sha256": "8cc22404ccaa095f84570dda820b86b997e99d9788ce2015590c6f0c85d5ba01"
   }
  ],
  "request": "9c61e590c364",
