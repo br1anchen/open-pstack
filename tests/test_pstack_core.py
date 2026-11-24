@@ -20735,20 +20735,37 @@ class BundleMergeTests(unittest.TestCase):
         self.assertFalse((self.store / 'briefs.md').exists())
         self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
 
-    def test_a_late_reply_never_deletes_a_file_the_master_wrote_after_its_snapshot(
+    def reply_lacking(self, rel):
+        """The sidekick's reply, packed after it deleted `rel`, and the bundle this side sent it last (the base), which still holds `rel`."""
+        self.write(rel, 'base\n')
+        base = self.pack('base.tgz')
+        (self.store / rel).unlink()
+        incoming = self.pack('incoming.tgz')
+        self.write(rel, 'base\n')
+        return incoming, base
+
+    def test_a_reply_deletes_a_file_its_own_role_deleted_and_keeps_one_the_master_wrote_after_its_snapshot(
         self,
     ):
-        """The reply was packed before the master wrote a gates-mode verdict, and the base is the newer bundle the master sent the role since: the
-        reply lacks the verdict, and a file its sender did not write is not its to delete."""
-        incoming = self.pack('incoming.tgz')
-        (self.store / 'verdicts').mkdir()
-        self.write('verdicts/001-x-v1.md', 'status: clean\n')
-        base = self.pack('base.tgz')
-        for role in ('verifier', 'sidekick'):
-            with self.subTest(role=role):
-                self.write('verdicts/001-x-v1.md', 'status: clean\n')
-                self.bundle.apply(incoming, base, self.bundle.Reply(role))
-                self.assertEqual(self.read('verdicts/001-x-v1.md'), 'status: clean\n')
+        """reports/ is the sidekick's. The reply lacks a report either because the sidekick deleted it (this side still has it as the base had it:
+        the deletion goes through) or because the master wrote it after the reply's snapshot (this side's copy differs from the base, or the base
+        lacks it: it stays)."""
+        for label, change, kept in (
+            ('the role deleted its own unchanged file', None, None),
+            ('the master changed it after the base', 'changed\n', 'changed\n'),
+        ):
+            with self.subTest(label):
+                incoming, base = self.reply_lacking('reports/001-x.md')
+                if change:
+                    self.write('reports/001-x.md', change)
+                self.bundle.apply(incoming, base, self.bundle.Reply('sidekick'))
+                path = self.store / 'reports/001-x.md'
+                self.assertEqual(path.read_text() if path.exists() else None, kept)
+        with self.subTest('the master wrote a new file after the base'):
+            incoming, base = self.reply_lacking('reports/001-x.md')
+            self.write('reports/002-new.md', 'mine\n')
+            self.bundle.apply(incoming, base, self.bundle.Reply('sidekick'))
+            self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
 
 
 class BundleRepoCase(unittest.TestCase):
