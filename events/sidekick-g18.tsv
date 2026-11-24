@@ -13,3 +13,4 @@
 2026-11-24T15:20:26Z	1795533626	sidekick	finish-verify-pass	049-bundle-and-rotation-fixes-2	648f31bfb
 2026-11-24T15:20:26Z	1795533626	sidekick	rotation-required	049-bundle-and-rotation-fixes-2	generation:18 sha256:babf356795e2
 2026-11-24T15:20:28Z	1795533628	sidekick	report	049-bundle-and-rotation-fixes-2	done
+2026-11-24T15:34:42Z	1795534482	sidekick	step	050-landing-rebase-5	1:29cc53c2e
