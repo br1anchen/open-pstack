@@ -120,3 +120,6 @@
 2026-11-24T15:46:34Z	T-01a20e3b-cf15-74d1-b123-1af43cda2b58	verifier	T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	nested
 2026-11-24T16:55:37Z	T-01a20e7b-f136-770b-89db-4adad4d6149b	verifier	T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	pending
 2026-11-24T16:55:55Z	T-01a20e7b-f136-770b-89db-4adad4d6149b	verifier	T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	nested
+2026-11-24T17:13:40Z	T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8	master	-	pending
+2026-11-24T17:13:40Z	T-01a20db5-f98d-70f3-87e0-b2323c3b3bac	sidekick	T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8	pending
+2026-11-24T17:13:40Z	T-01a1f958-10b7-7675-b9d4-ad9f43f019fc	consultant	T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8	pending

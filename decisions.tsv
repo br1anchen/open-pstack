@@ -169,3 +169,4 @@ ts	phase	decision	why	evidence	result
 2026-11-24T16:57:03Z	review	051 joo: relay medium confirmed	relay settle copies only to sent_path, so a reply after a relayed steer finds no base by id	joo 2026-11-24T16-54-00-542Z-d6ba01b6; relay.py:56-57	fold into the fix brief after the 051 verdict
 2026-11-24T17:11:03Z	archive	archive verifier T-01a20e7b-f136-770b-89db-4adad4d6149b	no longer used by the store; its verdict is recorded	amp threads archive T-01a20e7b-f136-770b-89db-4adad4d6149b	archived
 2026-11-24T17:12:02Z	review	051 revise; brief 052 queued	joo medium: relay bundles not kept by id; verdict clean	reviews/051-reply-names-its-base.md	052 queued; master rotates (compaction) before dispatch
+2026-11-24T17:13:48Z	archive	archive master T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	no longer used by the store; take-master has run	amp threads archive T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6	archived

@@ -1,2 +1,8 @@
 2026-11-24T17:13:01Z	1795540381	master	handoff	-	generation:3
 2026-11-24T17:13:01Z	1795540381	master	spawn	-	amp:generation:4
+2026-11-24T17:13:40Z	1795540420	master	nest-pending	-	T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8 top-level
+2026-11-24T17:13:40Z	1795540420	master	nest-pending	-	T-01a20db5-f98d-70f3-87e0-b2323c3b3bac under T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8
+2026-11-24T17:13:40Z	1795540420	master	nest-pending	-	T-01a1f958-10b7-7675-b9d4-ad9f43f019fc under T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8
+2026-11-24T17:13:48Z	1795540428	master	archive	-	master:T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T17:13:48Z	1795540428	master	log	-	archive: archive master T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T17:13:48Z	1795540428	master	takeover	-	generation:4
