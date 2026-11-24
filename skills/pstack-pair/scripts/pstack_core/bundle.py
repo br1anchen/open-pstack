@@ -202,12 +202,9 @@ def fetch_origin(root, *options):
     )
 
 
-def origin_baseline(root):
-    """The commit of origin's default branch that the receiver can fetch too: the one thing a hand-over's bundle may leave out. origin is fetched
-    first (fetch_origin); when that fails or times out the cut is '' and the bundle carries every commit: a tracking ref the last fetch left says
-    nothing about what the receiver can fetch now. Else origin/HEAD, else origin/main, else origin/master is the cut, '' when there is none."""
-    if not fetch_origin(root):
-        return ''
+def tracking_baseline(root):
+    """The commit of origin's default branch as this side's remote-tracking ref already has it, with no fetch: origin/HEAD, else origin/main, else
+    origin/master; '' when there is none."""
     ref = git.out(root, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD')
     if not ref:
         ref = next(
@@ -223,13 +220,22 @@ def origin_baseline(root):
     ) or ''
 
 
+def origin_baseline(root):
+    """The commit of origin's default branch that the receiver can fetch too: the one thing a master's hand-over bundle may leave out. origin is
+    fetched first (fetch_origin); when that fails or times out the cut is '' and the bundle carries every commit: a tracking ref the last fetch
+    left says nothing about what the receiver can fetch now. Else tracking_baseline."""
+    return tracking_baseline(root) if fetch_origin(root) else ''
+
+
 def pack(store, path, sender, to, agents, text='', branches=False):
     """Writes the bundle of store to path, from `sender` ({name, thread}) to the agent `to` ({name, pane}), carrying the agents this side
     knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest. A master's hand-over (`branches`) also
     carries every local branch: its name and tip in the manifest (git.branches), its commits in the same git bundle, cut only against
-    origin's default branch (git.baseline), never against the remotes this side happens to have. Every send also carries the run's evidence refs
-    (keep_tips) of its own run in the same git bundle. A send that carries a hand-over or evidence is cut as a hand-over is, since a remote only this
-    side has is something the receiver may lack; a send with neither is cut against the remotes this side has and fetches nothing."""
+    origin's default branch (git.baseline), never against the remotes this side happens to have, and fetches origin first (origin_baseline). Every
+    send also carries the run's evidence refs (keep_tips) of its own run in the same git bundle. A send that carries evidence is cut against
+    origin's default branch as this side's tracking ref has it (tracking_baseline), since a remote only this side has is something the receiver may
+    lack, but fetches nothing; a send with neither is cut against the remotes this side has and fetches nothing. A receiver that lacks a prerequisite
+    fetches origin itself (fetch)."""
     files, listed = store_files(store)
     root = repo_of(store)
     head = git.out(root, 'rev-parse', 'HEAD') if root else None
@@ -264,7 +270,7 @@ def pack(store, path, sender, to, agents, text='', branches=False):
         manifest['git'].update(keep=keeps)
         refs.update({f'keep/{name}': oid for name, oid in keeps.items()})
     if head and (branches or keeps):
-        baseline = origin_baseline(root)
+        baseline = origin_baseline(root) if branches else tracking_baseline(root)
         manifest['git'].update(baseline=baseline)
         exclude = (baseline,) if baseline else ()
     with tempfile.TemporaryDirectory() as tmp:
