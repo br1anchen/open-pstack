@@ -174,3 +174,5 @@
 2026-11-24T13:18:19Z	1795526299	master	wake	047-bundle-and-rotation-fixes	verify:progress
 2026-11-24T13:19:01Z	1795526341	master	nest	-	T-01a20db4-e855-7372-bf97-96acf34ecdf4 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-24T13:19:11Z	1795526351	master	rotate	-	generation:17
+2026-11-24T13:19:21Z	1795526361	master	nest-pending	-	T-01a20db5-f98d-70f3-87e0-b2323c3b3bac under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T13:19:29Z	1795526369	master	spawn	-	sidekick:amp:handed-off
