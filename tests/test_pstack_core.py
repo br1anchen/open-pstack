@@ -21411,7 +21411,7 @@ class BundleBranchApplyTests(BundleRepoCase):
             f'warn: could not keep {self.base} under refs/pstack/keep/bad..run/{self.base}\n',
         )
 
-    def test_an_ordinary_send_carries_only_its_own_runs_evidence_and_fetches_nothing(
+    def test_an_ordinary_send_carries_only_its_own_runs_evidence_and_is_cut_like_a_hand_over(
         self,
     ):
         mine, _ = self.send_evidence('ev-mine')
@@ -21430,8 +21430,28 @@ class BundleBranchApplyTests(BundleRepoCase):
             sorted(manifest['git']['keep']),
             sorted(f'run1/{oid}' for oid in (mine, self.git('rev-parse', 'HEAD'))),
         )
-        self.assertNotIn('baseline', manifest['git'])
-        self.assertEqual([argv for argv in calls if 'fetch' in argv], [])
+        self.assertEqual(manifest['git']['baseline'], '')
+
+    def test_an_ordinary_send_keeps_local_only_evidence_when_the_senders_remotes_hold_a_commit_the_receiver_lacks(
+        self,
+    ):
+        """A send cut against the sender's --remotes leaves out a commit only the sender's remotes hold; the evidence built on it then fails to
+        apply at a receiver that lacks it. The send is cut like a hand-over (origin_baseline), so it carries that commit."""
+        remote_only = self.commit('remote-only')
+        self.git('update-ref', 'refs/remotes/elsewhere/main', remote_only)
+        evidence, path = self.send_evidence('ev-on-top')
+        self.fresh_receiver()
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git('cat-file', '-e', f'{evidence}^{{commit}}')
+        _, lines = self.bundle.apply(str(path))
+        self.assertIn('evidence: 1 commits kept under refs/pstack/keep', lines)
+        self.assertEqual(
+            [line for line in lines if 'not kept' in line or 'did not apply' in line],
+            [],
+        )
+        self.assertEqual(
+            self.git('rev-parse', f'refs/pstack/keep/run1/{evidence}'), evidence
+        )
 
     def test_an_ordinary_message_whose_evidence_commit_is_missing_still_syncs_its_store_and_names_the_ref(
         self,
