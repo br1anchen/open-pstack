@@ -14878,7 +14878,10 @@ class AmpKitchenTests(KitchenScriptTests):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.done(b, 'abc')
         doc = self.state()
-        doc['dispatch'] = {'brief': str(b)}
+        doc['dispatch'] = {
+            'brief': str(b),
+            'generation': doc['sidekick']['generation'],
+        }
         doc['sidekick']['rotation_required'] = True
         self.edit_pair(**doc)
         review = self.store / 'reviews' / b.name
