@@ -213,3 +213,8 @@
 2026-11-24T15:37:11Z	1795534631	master	wake	049-bundle-and-rotation-fixes-2	verify:reject
 2026-11-24T15:37:30Z	1795534650	master	log	-	verify-049: 047+049 reject: late reply deletes a master-written verdict (= joo medium); brief 051 already fixes it, now restores 047's verifier subtest
 2026-11-24T15:45:21Z	1795535121	master	send-verify	-	claude:landing
+2026-11-24T15:45:33Z	1795535133	master	nest-pending	-	T-01a20e3b-cf15-74d1-b123-1af43cda2b58 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T15:45:50Z	1795535150	master	wake	-	verify:progress
+2026-11-24T15:46:01Z	1795535161	master	archive	-	verifier:T-01a20e25-aae3-770d-9ded-6a9fb9035479
+2026-11-24T15:46:01Z	1795535161	master	log	-	archive: archive verifier T-01a20e25-aae3-770d-9ded-6a9fb9035479
+2026-11-24T15:46:03Z	1795535163	master	reuse	051-reply-names-its-base	sidekick: pstack, pstack-docs, context 23%
