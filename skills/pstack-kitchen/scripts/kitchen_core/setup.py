@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pstack_core import git, gitstore, mux
 from pstack_core import spawn as pair_spawn
+from pstack_core.agents import current_no_mcp
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
 from pstack_core.commands.report import require_pair
@@ -215,16 +216,20 @@ def spawn(ctx, args):
     main_kind = text_at(chosen, 'kind') or roster_text(roster, 'sidekick', 'kind')
     if not kind:
         kind = main_kind
-        if not kind:
-            raise Die(
-                'no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'
-            )
-        if not native:
+        if kind and not native:
             native = (
                 names(chosen, 'args')
                 if chosen
                 else roster_lines(roster, 'sidekick', 'args')
             )
+    unrostered = False
+    if not kind:
+        kind, native = recorded_start(store, 'sidekick', native)
+        if not kind:
+            raise Die(
+                'no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'
+            )
+        unrostered = True
     chain_rest = ()
     if not fallback and kind == main_kind:
         fallback = roster_text(roster, 'sidekick', 'fallback', 'kind')
@@ -240,10 +245,25 @@ def spawn(ctx, args):
             kind=kind,
             fallback=fallback,
             native=tuple(native),
+            permission=given.permission or ('none' if unrostered else ''),
             fallback_args=(*opts.all('--fallback-arg'), *fb_args),
             chain_rest=chain_rest,
         ),
     )
+
+
+def recorded_start(store, role, native):
+    """(kind, args) to start `role` when neither --kind nor the host roster names one, as on an orb with no roster: the entry the run recorded in
+    pair.json (its kind and start arguments, which already hold the flags a start adds), said in one line. The call's own arguments win. A store
+    that records no kind gives ('', native), and the command ends with the error of a role nobody names."""
+    entry = peek(load(store), role)
+    kind = text_at(entry, 'kind')
+    if not kind:
+        return '', native
+    args = native or current_no_mcp(names(entry, 'start_args'))
+    label = pair_spawn.entry_label({'kind': kind, 'args': args})
+    print(f"spawn: no host roster here; starting the run's recorded {role} ({label})")
+    return kind, args
 
 
 def consultant_chain(kind, native):
@@ -295,7 +315,11 @@ def consultant(ctx, args):
         raise Die('--reason is required: the escalation that warrants the consultant')
     chain = consultant_chain(kind, native)
     if not chain[0]['kind']:
-        raise Die('no --kind and no [consultant] kind in the host roster')
+        recorded_kind, recorded_args = recorded_start(store, 'consultant', native)
+        if not recorded_kind:
+            raise Die('no --kind and no [consultant] kind in the host roster')
+        chain = [{'kind': recorded_kind, 'args': recorded_args}]
+        permission = permission or 'none'
     # A consultant whose kind has a preflight (Muse, Amp, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
     # spent plan steps down the roster's [[consultant.fallback]] chain, and a start that fails steps down it as well.
     end_with_parent()
