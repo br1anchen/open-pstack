@@ -366,6 +366,7 @@
       "--head",
       "29cc53c2e8a65114086f9ec00042f5dd64d4b469"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-000-landing-verify/T-01a20e3b-cf15-74d1-b123-1af43cda2b58.jsonl"
   }
 }
