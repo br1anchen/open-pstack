@@ -189,3 +189,7 @@
 2026-11-24T13:34:02Z	1795527242	master	wake	047-bundle-and-rotation-fixes	verify:clean
 2026-11-24T13:34:04Z	1795527244	master	log	-	verify-047: 047 verdict clean; review stays revise for joo's regressions
 2026-11-24T13:55:18Z	1795528518	master	send-verify	-	claude:landing
+2026-11-24T13:55:28Z	1795528528	master	nest-pending	-	T-01a20dd7-0b57-76d3-87ee-af196107a581 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T13:55:39Z	1795528539	master	wake	-	verify:progress
+2026-11-24T13:56:26Z	1795528586	master	nest	-	T-01a20dd7-0b57-76d3-87ee-af196107a581 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T13:56:33Z	1795528593	master	reuse	049-bundle-and-rotation-fixes-2	sidekick: pstack, pstack-docs, context 11%
