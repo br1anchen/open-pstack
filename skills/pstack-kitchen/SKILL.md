@@ -548,11 +548,17 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   for each, then `kitchen.sh snooze <store> --done <thread>...` records it in
   `snooze.tsv` (`--wake <thread>...` records the opposite; `--done` refuses a master
   thread or one that is not snoozable now, and a thread the store never named,
-  before it writes a row). Nothing is snoozed at thread start. A `dispatch`,
-  `discuss`, `consult` or `steer` to a thread recorded snoozed refuses before it
-  records anything, saying to call `update_thread(..., snooze="off")` and then
-  `kitchen.sh snooze <store> --wake <T>`; a fresh thread has no row and is never
-  refused. `status` prints `snooze-due: N role threads` while some qualify, and
+  before it writes a row; a refusal prints the `update_thread(thread=<T>,
+  snooze="off")` call that undoes an Amp snooze already made, since the master
+  calls `update_thread` first and records second). Nothing is snoozed at thread
+  start. Every message or relay the kitchen sends to a thread recorded snoozed
+  refuses before it records, clears or logs anything: `dispatch` (before
+  classify, the playbook and the archive sweep, unless it rotates to a fresh
+  thread), `discuss`, `consult`, `steer`, `stop` and `close`. The refusal names
+  every snoozed thread the command would message, with `update_thread(thread=<T>,
+  snooze="off")` and `kitchen.sh snooze <store> --wake <T>...`. `queue` only holds
+  a brief and `verify` starts a fresh verifier thread, so neither sends to a
+  snoozed one; a fresh thread has no row and is never refused. `status` prints `snooze-due: N role threads` while some qualify, and
   `needs-human: <role> <T> (error)` for a live role thread in error.
   `PSTACK_SNOOZE_ROLES=0` stops new snoozing only: a thread snoozed earlier
   still needs `update_thread(..., snooze="off")` and `kitchen.sh snooze <store>
