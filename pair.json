@@ -89,7 +89,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:12",
+    "pane_id": "amp:13",
     "kind": "amp",
     "started_at": null
   },
@@ -109,7 +109,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "047-bundle-and-rotation-fixes-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "title": "kitchen-followups master",
@@ -325,5 +327,40 @@
   "landing": {
     "parent": "eb8228f9a7dc6466e40f8674913b3bea3e8c52eb",
     "parent_ref": "eb8228f9"
+  },
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/047-bundle-and-rotation-fixes-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/047-bundle-and-rotation-fixes-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/047-bundle-and-rotation-fixes.md",
+    "scratch": "047-bundle-and-rotation-fixes-verify",
+    "units": "047",
+    "risk": "routine",
+    "sample": 0.2,
+    "unit": "047-bundle-and-rotation-fixes",
+    "started": 1795526279,
+    "deadline": 1795528979,
+    "class": "routine",
+    "entry": {
+      "kind": "amp",
+      "args": [
+        "--mode",
+        "claude-code",
+        "--features",
+        "model:claude-sonnet-5-5"
+      ],
+      "source": "sidekick",
+      "fallback": {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6.1-sol"
+        ]
+      }
+    },
+    "retried": false,
+    "argv": [
+      "047"
+    ],
+    "delivered": false
   }
 }

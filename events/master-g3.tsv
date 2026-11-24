@@ -167,3 +167,6 @@
 2026-11-24T11:53:08Z	1795521188	master	log	-	land-4: Brian approved the fourth push: 040 + 046, after 047, on a clean landing verdict and land-check
 2026-11-24T11:53:14Z	1795521194	master	queue	048-landing-rebase-4	
 2026-11-24T12:24:03Z	1795523043	master	send-steer	047-bundle-and-rotation-fixes-s1	resume
+2026-11-24T12:24:20Z	1795523060	master	wake	047-bundle-and-rotation-fixes	checkin
+2026-11-24T12:24:21Z	1795523061	master	log	-	steer-047: 047 blocked by two gate failures at step 4 (Die in a helper); steered to RotateRefused, then steps 5-6
+2026-11-24T13:17:59Z	1795526279	master	send-verify	047-bundle-and-rotation-fixes	amp:047

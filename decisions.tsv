@@ -152,3 +152,4 @@ ts	phase	decision	why	evidence	result
 2026-11-24T11:13:56Z	review-046	046 accepted on clean verdict 046-v1; 047 dispatched (bundle x3, spawn rotation, s4-hero gaps 5-6)	verdict 046-v1; joo 4cddfa4c	reviews/046, briefs/047	ask Brian: land 040+046
 2026-11-24T11:14:30Z	review-046	046 accepted on clean verdict 046-v1; 047 dispatched (bundle x3, spawn rotation, s4-hero gaps 5-6)	verdict 046-v1; joo 4cddfa4c	reviews/046, briefs/047	ask Brian: land 040+046
 2026-11-24T11:53:08Z	land-4	Brian approved the fourth push: 040 + 046, after 047, on a clean landing verdict and land-check	Brian in this thread	'-	landing brief 048 queued after 047
+2026-11-24T12:24:21Z	steer-047	047 blocked by two gate failures at step 4 (Die in a helper); steered to RotateRefused, then steps 5-6	report 047	steers/047-s1	sidekick resumes
