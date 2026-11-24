@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at a0ea1429 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 4f782901 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -367,16 +367,16 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `NOTE:` (read by skills/pstack-kitchen/references/sidekick.md:103) — skills/pstack-pair/scripts/pstack_core/store.py:456 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `STEER:` (read by skills/pstack-pair-guided/SKILL.md:185) — skills/pstack-pair/scripts/pstack_core/store.py:464 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `REPORT` (read by skills/pstack-kitchen/SKILL.md:3) — skills/pstack-pair/scripts/pstack_core/commands/report.py:88 — test_pstack_pair.PairScriptTests.test_trio (+14)
-- `running:` (read by skills/pstack-kitchen/references/master.md:133) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:246 — test_pstack_pair.PairScriptTests.test_trio (+8)
+- `running:` (read by skills/pstack-kitchen/references/master.md:132) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:246 — test_pstack_pair.PairScriptTests.test_trio (+8)
 - `steps:` (read by skills/pstack-kitchen/SKILL.md:684) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
-- `idle:` (read by skills/pstack-kitchen/references/master.md:120) — skills/pstack-pair/scripts/pstack_core/wait.py:253 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- `queued:` (read by skills/pstack-kitchen/references/master.md:345) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
-- `rotated:` (read by skills/pstack-kitchen/references/master.md:129) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:422 — test_pstack_pair.PairScriptTests.test_trio (+19)
+- `idle:` (read by skills/pstack-kitchen/references/master.md:119) — skills/pstack-pair/scripts/pstack_core/wait.py:253 — test_pstack_pair.PairScriptTests.test_trio (+3)
+- `queued:` (read by skills/pstack-kitchen/references/master.md:344) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
+- `rotated:` (read by skills/pstack-kitchen/references/master.md:128) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:422 — test_pstack_pair.PairScriptTests.test_trio (+19)
 - `report_status:` (read by skills/pstack-pair-guided/SKILL.md:154) — skills/pstack-pair/scripts/pstack_core/wait.py:204 — test_pstack_pair.PairScriptTests.test_trio (+18)
 - `review-delta:` (read by skills/pstack-pair-guided/references/master.md:102) — skills/pstack-pair/scripts/pstack_core/replies.py:217 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `provider_error:` (read by skills/pstack-pair/references/master.md:279) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:533 — test_pstack_core.CoreTests.test_a_provider_stop_with_a_fallback_but_no_retry_hook_ends_with_the_provider_error (+7)
-- `editing:` (read by skills/pstack-kitchen/references/master.md:133) — skills/pstack-pair/scripts/pstack_core/checkin.py:379 — test_pstack_pair.PairScriptTests.test_trio (+6)
-- `written but not ready` (read by skills/pstack-kitchen/references/master.md:137) — skills/pstack-pair/scripts/pstack_core/wait.py:308 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+5)
+- `editing:` (read by skills/pstack-kitchen/references/master.md:132) — skills/pstack-pair/scripts/pstack_core/checkin.py:379 — test_pstack_pair.PairScriptTests.test_trio (+6)
+- `written but not ready` (read by skills/pstack-kitchen/references/master.md:136) — skills/pstack-pair/scripts/pstack_core/wait.py:308 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+5)
 - `closed:` (read by skills/pstack-kitchen/references/master-landing.md:36) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:261 — test_pstack_core.CoreTests.test_verify_behaviour (+7)
 - `cancelled:` (read by skills/pstack-kitchen/references/master-verify.md:40) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:401 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+5)
 - `audit:` (read by skills/pstack-kitchen/SKILL.md:631) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:580 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+3)
@@ -390,7 +390,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `gates: still running` (read by skills/pstack-kitchen/references/brief-template.md:71) — skills/pstack-kitchen/scripts/kitchen_core/step.py:280 — test_pstack_core.CoreTests.test_step_behaviour (+3)
 - `gates: queued` (read by skills/pstack-kitchen/SKILL.md:77) — docs only — test_pstack_kitchen.KitchenScriptTests.test_a_step_waiting_for_a_gate_slot_says_where_it_stands (+1)
 - `ready:` (read by skills/pstack-pair/references/master.md:83) — skills/pstack-kitchen/scripts/variant.py:264 — test_pstack_pair.PairScriptTests.test_trio (+9)
-- `superseded` (read by skills/pstack-kitchen/references/master.md:114) — skills/pstack-pair/scripts/pstack_core/commands/notes.py:326 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+9)
+- `superseded` (read by skills/pstack-kitchen/references/master.md:113) — skills/pstack-pair/scripts/pstack_core/commands/notes.py:326 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+9)
 - `sidekick_response:` — skills/pstack-pair/scripts/pstack_core/consult.py:198 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `report: missing` (read by skills/pstack-pair-guided/SKILL.md:106) — skills/pstack-pair/scripts/pstack_core/wait.py:306 — test_pstack_pair.PairScriptTests.test_trio (+15)
 - `next:` (read by skills/pstack-pair-guided/references/sidekick.md:85) — skills/pstack-kitchen/scripts/kitchen.py:3593 — test_pstack_pair.PairScriptTests.test_trio (+26)
