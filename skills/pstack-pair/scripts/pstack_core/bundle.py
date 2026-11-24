@@ -36,6 +36,7 @@ LINK = b'symlink:'
 OUT = 'refs/pstack/out'
 MISSING = object()
 FETCH_TIMEOUT_ENV = 'PSTACK_BUNDLE_FETCH_TIMEOUT_S'
+UNSHALLOW_TIMEOUT_ENV = 'PSTACK_BUNDLE_UNSHALLOW_TIMEOUT_S'
 KEEP_ENV = 'PSTACK_BUNDLE_KEEP'
 # The one pair.json fact a role sets under the local store (commands/report.py record_rotation_required), and the append logs every role writes.
 SIDEKICK_FACT = 'rotation_required'
@@ -188,16 +189,16 @@ def keep_tips(root, run):
     return found
 
 
-def fetch_origin(root, *options):
-    """Whether `git fetch origin` succeeded: without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30, 0 for no limit) seconds, so an
-    unreachable origin ends it instead of hanging a sync."""
+def fetch_origin(root, *options, timeout_env=FETCH_TIMEOUT_ENV, timeout_default=30):
+    """Whether `git fetch origin` succeeded: without a prompt and for at most the seconds `timeout_env` names (PSTACK_BUNDLE_FETCH_TIMEOUT_S, 30;
+    0 for no limit), so an unreachable origin ends it instead of hanging a sync."""
     return git.ok(
         root,
         'fetch',
         '-q',
         *options,
         'origin',
-        timeout=env_int(FETCH_TIMEOUT_ENV, 30) or None,
+        timeout=env_int(timeout_env, timeout_default) or None,
         env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
     )
 
@@ -562,12 +563,21 @@ def tag_of(thread):
 
 
 def fetch(root, bundle, tag):
-    """Fetches the bundle's refs under refs/pstack/in/<tag>/; a shallow or stale clone fetches its remote first and tries again."""
+    """Fetches the bundle's refs under refs/pstack/in/<tag>/; a shallow or stale clone fetches its remote first and tries again. A shallow clone's
+    fetch unshallows it, which takes longer than a plain fetch: PSTACK_BUNDLE_UNSHALLOW_TIMEOUT_S (600) bounds it."""
     spec = f'+{OUT}/*:refs/pstack/in/{tag}/*'
     if git.ok(root, 'fetch', '-q', bundle, spec):
         return True
     shallow = git.out(root, 'rev-parse', '--is-shallow-repository') == 'true'
-    fetch_origin(root, *(['--unshallow'] if shallow else []))
+    if shallow:
+        fetch_origin(
+            root,
+            '--unshallow',
+            timeout_env=UNSHALLOW_TIMEOUT_ENV,
+            timeout_default=600,
+        )
+    else:
+        fetch_origin(root)
     return git.ok(root, 'fetch', '-q', bundle, spec)
 
 
