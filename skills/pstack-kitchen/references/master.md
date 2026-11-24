@@ -69,9 +69,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    latest digest. A check-in the wait swallows is not logged as a wake; the
    one it returns is. Read a digest for direction only, as the pair master does;
    steer only when your review would otherwise say revise. A steer cannot change
-   the brief's Verify, which `finish` reruns as written. When a steer moves what
-   Verify checks (a file, a term, a path), edit the brief's Verify block, and its
-   Scope, before you send the steer, and say so in its Direction. A steer to a sidekick
+   the brief's Verify, which `finish` reruns as written. When a steer
+   moves what Verify checks (a file, a term, a path), edit the brief's Verify
+   block, and its Scope, before you send the steer, and say so in its Direction.
+   A steer to a sidekick
    that is idle with a unit reported `blocked` or `partial` resumes the unit:
    its scope effect goes into the brief and the brief is sent again, with the
    old report set aside; the busy rule and the other cases are in the
