@@ -1,0 +1,16 @@
+{
+ "code": [
+  "11d2874b62ef48ef9305c3e772e388e2cf66e2e6"
+ ],
+ "generation": 17,
+ "outputs": [
+  {
+   "path": "reports/046-snooze-stop-and-done.md",
+   "sha256": "b3aa66d51f71d2652240a863166e46208b9a34cd939fc502b1191fac6de16c7f"
+  }
+ ],
+ "request": "f8196acbfb8a",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20a70-a13e-7108-b446-3b81278c27ce"
+}

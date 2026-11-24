@@ -1,0 +1,4 @@
+1	b2d218d42080d891fdcde5af0bfe1f17de6fe23f	1795514633		stop and close refuse snoozed roles before any change
+2	bbbdf9396b1d068df6dd1af8f8b601058605180e	1795515503		dispatch refuses a snoozed sidekick before classify and the sweep
+3	43e07850b3ec63e40e377708cbc82036514e0c4b	1795516257		snooze --done refusals name the undo and raise SnoozeRefused
+4	11d2874b62ef48ef9305c3e772e388e2cf66e2e6	1795517055		help lists snooze; docs say every send refuses and how to undo
