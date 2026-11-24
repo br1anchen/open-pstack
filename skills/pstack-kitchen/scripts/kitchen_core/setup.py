@@ -224,12 +224,12 @@ def spawn(ctx, args):
             )
     unrostered = False
     if not kind:
+        unrostered = not native
         kind, native = recorded_start(store, 'sidekick', native)
         if not kind:
             raise Die(
                 'no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'
             )
-        unrostered = True
     chain_rest = ()
     if not fallback and kind == main_kind:
         fallback = roster_text(roster, 'sidekick', 'fallback', 'kind')

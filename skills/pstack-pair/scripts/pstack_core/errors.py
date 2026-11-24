@@ -141,7 +141,7 @@ class HandoffNotReady(PairError):
 
 
 class RotateRefused(PairError):
-    """The master cannot hand over now: a hand-over is open, it is not live, or it is not a Claude."""
+    """A rotation is refused before it changes anything: a master hand-over that cannot start (one is open, the master is not live, or it is not a Claude), or a role's rotation that cannot (its task is not complete, or it has no recorded start arguments)."""
 
     code = 5
 
