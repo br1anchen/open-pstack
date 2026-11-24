@@ -15005,12 +15005,17 @@ class AmpKitchenTests(KitchenScriptTests):
         ):  # fmt: skip
             out = self.run_sh('snooze', str(self.store), '--done', thread, code=1)
             self.assertIn(said, out)
+            self.assertIn(
+                f'; if you already called update_thread(... snooze="indefinite"), undo it: update_thread(thread={thread}, snooze="off")',
+                out,
+            )
         self.snooze_world({sidekick: 'idle'})
         out = self.run_sh('snooze', str(self.store), '--done', sidekick, code=1)
         self.assertIn(
-            f'snooze: {sidekick} is not snoozable now (its unit has no review note)',
+            f'snooze: {sidekick} is not snoozable now (its unit has no review note); if you already called',
             out,
         )
+        self.assertIn(f'undo it: update_thread(thread={sidekick}, snooze="off")', out)
         self.assertFalse((self.store / 'snooze.tsv').exists())
         self.review_unit(True)
         self.assertEqual(

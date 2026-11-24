@@ -651,6 +651,20 @@ class CoreTests(unittest.TestCase):
             )
         )
 
+    def test_snooze_refusals_have_their_own_class_and_keep_their_exit_codes(self):
+        from pstack_core.commands import snooze as snooze_commands
+        from pstack_core.errors import SnoozeRefused
+        from pstack_core.mux import amp as amp_mux
+
+        with tempfile.TemporaryDirectory() as store:
+            with self.assertRaises(SnoozeRefused) as refused:
+                snooze_commands.record(store, True, ['T-m'], {'T-m': 'master'})
+        self.assertEqual(refused.exception.code, 1)
+        self.assertIn(
+            'undo it: update_thread(thread=T-m, snooze="off")', str(refused.exception)
+        )
+        self.assertEqual(amp_mux.Snoozed.code, 5)
+
     def test_kitchen_runs_the_trios_stop_after_its_own_snooze_check_from_a_table_of_its_own_and_has_no_spawn(
         self,
     ):
