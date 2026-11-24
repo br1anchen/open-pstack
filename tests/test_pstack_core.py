@@ -21196,15 +21196,25 @@ class BundleBranchApplyTests(BundleRepoCase):
         header = self.bundle.read_bundle(str(path))[2].split(b'\n\n', 1)[0]
         return manifest, header.decode().splitlines()
 
-    def test_a_hand_over_bundle_is_cut_at_the_tracking_ref_when_origin_cannot_be_fetched(
+    def test_a_hand_over_bundle_carries_every_commit_when_origin_cannot_be_fetched(
         self,
     ):
+        """A tracking ref left by an old fetch says nothing about what the receiver can fetch now, so the bundle is self-contained: it applies in a
+        checkout that holds nothing."""
         self.unfetchable_origin_with_a_tracking_ref()
         manifest, header = self.hand_over()
-        self.assertEqual(manifest['git']['baseline'], self.base)
-        self.assertTrue(any(line.startswith(f'-{self.base}') for line in header))
+        self.assertEqual(manifest['git']['baseline'], '')
+        self.assertEqual([line for line in header if line.startswith('-')], [])
+        path = Path(self.tmp.name) / 'handover.tgz'
+        gitdata = self.bundle.read_bundle(str(path))[2]
+        empty = Path(self.tmp.name) / 'empty'
+        empty.mkdir()
+        subprocess.run(['git', 'init', '-q', str(empty)], check=True, timeout=60)
+        bundle_file = Path(self.tmp.name) / 'carried.bundle'
+        bundle_file.write_bytes(gitdata)
+        self.assertTrue(self.bundle.fetch(str(empty), str(bundle_file), 'peer'))
 
-    def test_the_origin_fetch_of_a_hand_over_bundle_has_no_prompt_a_timeout_and_a_timed_out_one_falls_back_to_the_tracking_ref(
+    def test_the_origin_fetch_of_a_hand_over_bundle_has_no_prompt_a_timeout_and_a_timed_out_one_carries_every_commit(
         self,
     ):
         self.unfetchable_origin_with_a_tracking_ref()
@@ -21221,9 +21231,28 @@ class BundleBranchApplyTests(BundleRepoCase):
             mock.patch.object(subprocess, 'run', timing_out),
         ):
             manifest, _ = self.hand_over()
-        self.assertEqual(manifest['git']['baseline'], self.base)
+        self.assertEqual(manifest['git']['baseline'], '')
         [fetch] = seen
         self.assertEqual(fetch['timeout'], 7)
+        self.assertEqual(fetch['env']['GIT_TERMINAL_PROMPT'], '0')
+
+    def test_the_receivers_fallback_fetch_of_origin_has_no_prompt_and_a_timeout(self):
+        self.unfetchable_origin_with_a_tracking_ref()
+        real, seen = subprocess.run, []
+
+        def recording(argv, *args, **kwargs):
+            if 'fetch' in argv and 'origin' in argv:
+                seen.append(kwargs)
+            return real(argv, *args, **kwargs)
+
+        missing = Path(self.tmp.name) / 'no-such.bundle'
+        with (
+            mock.patch.dict(os.environ, {'PSTACK_BUNDLE_FETCH_TIMEOUT_S': '9'}),
+            mock.patch.object(subprocess, 'run', recording),
+        ):
+            self.assertFalse(self.bundle.fetch(str(self.repo), str(missing), 'peer'))
+        [fetch] = seen
+        self.assertEqual(fetch['timeout'], 9)
         self.assertEqual(fetch['env']['GIT_TERMINAL_PROMPT'], '0')
 
     def test_older_ref_sets_of_one_sender_are_pruned_to_the_newest_few_and_the_applied_one_stays(

@@ -188,18 +188,26 @@ def keep_tips(root, run):
     return found
 
 
-def origin_baseline(root):
-    """The commit of origin's default branch that the receiver can fetch too: the one thing a hand-over's bundle may leave out. origin is fetched
-    first, without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30, 0 for no limit) seconds; when that fails or times out, the tracking ref the last
-    fetch left (origin/HEAD, else origin/main, else origin/master) is the cut. '' when there is none, and the bundle then carries everything."""
-    git.ok(
+def fetch_origin(root, *options):
+    """Whether `git fetch origin` succeeded: without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30, 0 for no limit) seconds, so an
+    unreachable origin ends it instead of hanging a sync."""
+    return git.ok(
         root,
         'fetch',
         '-q',
+        *options,
         'origin',
         timeout=env_int(FETCH_TIMEOUT_ENV, 30) or None,
         env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
     )
+
+
+def origin_baseline(root):
+    """The commit of origin's default branch that the receiver can fetch too: the one thing a hand-over's bundle may leave out. origin is fetched
+    first (fetch_origin); when that fails or times out the cut is '' and the bundle carries every commit: a tracking ref the last fetch left says
+    nothing about what the receiver can fetch now. Else origin/HEAD, else origin/main, else origin/master is the cut, '' when there is none."""
+    if not fetch_origin(root):
+        return ''
     ref = git.out(root, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD')
     if not ref:
         ref = next(
@@ -546,7 +554,7 @@ def fetch(root, bundle, tag):
     if git.ok(root, 'fetch', '-q', bundle, spec):
         return True
     shallow = git.out(root, 'rev-parse', '--is-shallow-repository') == 'true'
-    git.ok(root, 'fetch', '-q', *(['--unshallow'] if shallow else []), 'origin')
+    fetch_origin(root, *(['--unshallow'] if shallow else []))
     return git.ok(root, 'fetch', '-q', bundle, spec)
 
 
@@ -807,7 +815,7 @@ def import_git(manifest, gitdata):
                     )
                 lines.append('commits: the git bundle did not apply')
     if not has_commit(root, head):
-        git.ok(root, 'fetch', '-q', 'origin')
+        fetch_origin(root)
     if not has_commit(root, head):
         lost = f'checkout: {head[:9]} was not carried and the remote lacks it'
         if required:
@@ -834,14 +842,7 @@ def unkept_evidence(root, keeps):
     are here: keep_evidence leaves them out and the sync goes on. The fetch is bounded and prompts for nothing, as origin_baseline's is."""
     gone = [name for name, oid in sorted(keeps.items()) if not has_commit(root, oid)]
     if gone:
-        git.ok(
-            root,
-            'fetch',
-            '-q',
-            'origin',
-            timeout=env_int(FETCH_TIMEOUT_ENV, 30) or None,
-            env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
-        )
+        fetch_origin(root)
         gone = [name for name in gone if not has_commit(root, keeps[name])]
     if not gone:
         return []
