@@ -73,9 +73,9 @@
     "rotation_required": false,
     "delivered": {
       "generation": "17",
-      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "046-snooze-stop-and-done",
+      "brief": "047-bundle-and-rotation-fixes",
       "compactions": 0
     },
     "failovers": [
@@ -181,22 +181,21 @@
     }
   ],
   "placement": "split",
-  "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/047-bundle-and-rotation-fixes.md"
-  ],
+  "pending": [],
   "dispatch": {
     "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/047-bundle-and-rotation-fixes.md",
-    "at": "2026-11-24T11:14:14Z",
+    "at": "2026-11-24T12:24:04Z",
     "head": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "generation": 17,
     "sidekick": "amp claude-code claude-sonnet-5-5",
-    "report_order": 0
+    "report_order": 545
   },
   "sent": {
     "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/047-bundle-and-rotation-fixes.md",
     "kind": "BRIEF",
-    "at": "2026-11-24T11:14:14Z",
-    "epoch": 1795518854
+    "at": "2026-11-24T12:24:04Z",
+    "epoch": 1795523044,
+    "seen": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/047-bundle-and-rotation-fixes.md:1795523007"
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
