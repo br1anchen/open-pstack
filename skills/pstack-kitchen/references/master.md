@@ -71,11 +71,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    steer only when your review would otherwise say revise. A steer cannot change
    the brief's Verify, which `finish` reruns as written. When a steer
    moves what Verify checks (a file, a term, a path), edit the brief's Verify
-   block, and its Scope, before you send the steer, and say so in its Direction.
-   A steer to a sidekick
-   that is idle with a unit reported `blocked` or `partial` resumes the unit:
-   its scope effect goes into the brief and the brief is sent again, with the
-   old report set aside; the busy rule and the other cases are in the
+   block before you send the steer, and say so in its Direction. A steer to a
+   sidekick that is idle with a unit reported `blocked` or `partial` resumes
+   the unit: its scope effect goes into the brief and the brief is sent again,
+   with the old report set aside; the busy rule and the other cases are in the
    pstack-pair master reference. Under Amp threads (`PSTACK_MUX=amp`) a steer
    for a sidekick whose thread is in a turn is a relay you owe: `kitchen.sh
    steer` prints `relay-pending: <id> ...` and three `relay:` lines. Run
