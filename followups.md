@@ -65,3 +65,11 @@
 
 - nest.py:310 (low): `process_prog()` re-parses sys.argv and reloads the variant for the program name; pass `ctx.prog` down instead. Brief 046.
 - 040 behaviour change: take-master keeps the old master (`kept: nest pending`) until `nest --done`; a later sweep archives it.
+
+## Landing stack 3 (joo 2026-11-24T00-40-25-500Z-8f7e5175 on eb8228f9..699837d8) — first in brief 046
+
+- amp.py:1214 / amp.py:1191 (medium x2): `stop` and `close` to a snoozed role refuse in `Amp.send` only after the queue is cleared and `send-stop` is logged. Recoverable (the refusal names update_thread snooze="off" + --wake), but run end hits it. Fix: STOP is exempt from require_awake, or stop/close wake first; check before clearing the queue.
+- snooze.py:180 (medium, = 043's): --done refuses after the external snooze; give the undo instruction.
+- master.md:93 (low): every CLI send or relay to a snoozed thread refuses, not only dispatch/discuss/consult/steer.
+- snooze.py:86 (note), snooze.py:177 (low): docstring vs own_thread check; a dedicated PairError subclass for snooze refusals.
+- landing-v3 note: `kitchen.sh help` does not list `snooze`. Brief 046.
