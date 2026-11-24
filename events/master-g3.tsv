@@ -202,3 +202,6 @@
 2026-11-24T14:22:14Z	1795530134	master	queue	050-landing-rebase-5	
 2026-11-24T14:22:14Z	1795530134	master	log	-	land-4: push of fa6cd2a6 refused: main moved to 3b951444 (13 commits by Brian); landing-rebase-5 queued after 049
 2026-11-24T15:21:10Z	1795533670	master	send-verify	049-bundle-and-rotation-fixes-2	claude:047 049
+2026-11-24T15:21:21Z	1795533681	master	nest-pending	-	T-01a20e25-aae3-770d-9ded-6a9fb9035479 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-24T15:21:38Z	1795533698	master	wake	049-bundle-and-rotation-fixes-2	verify:progress
+2026-11-24T15:21:45Z	1795533705	master	reuse	050-landing-rebase-5	sidekick: pstack, pstack-docs, context 21%
