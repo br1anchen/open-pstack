@@ -37,3 +37,4 @@
 2026-11-24T15:36:50Z	1795534610	verifier	report	049-bundle-and-rotation-fixes-2-v1	reject
 2026-11-24T15:59:05Z	1795535945	verifier	report	landing-v5	clean
 2026-11-24T17:10:29Z	1795540229	verifier	report	051-reply-names-its-base-v1	clean
+2026-11-24T17:56:07Z	1795542967	verifier	report	052-relay-keeps-bundle-id-v1	clean
