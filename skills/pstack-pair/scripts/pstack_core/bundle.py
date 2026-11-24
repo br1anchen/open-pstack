@@ -935,10 +935,11 @@ def move_git(manifest, sender, keep):
     return lines
 
 
-def apply(path, base=None, reply=None):
+def apply(path, base=None, reply=None, sent=None):
     """Merges the bundle at path into this machine, against the bundle this side sent to its sender (base, a path or None), as a role's
     reply to the master when `reply` (role_reply) says so. A reply's base counts only when its id is the one the reply names as `synced`; else
-    the reply deletes nothing and a line says so. (manifest, lines to print). A hand-over's commits are imported before any store file or
+    the reply deletes nothing; an own-role file it changed is then compared with `sent` (the last bundle this side sent its sender, a path or None), so it conflicts only
+    where this side changed it since. (manifest, lines to print). A hand-over's commits are imported before any store file or
     ref changes, so one that cannot be taken raises ValueError with this machine as it was."""
     keep = env_int(KEEP_ENV, 8)
     manifest, files, gitdata = read_bundle(path)
@@ -948,7 +949,7 @@ def apply(path, base=None, reply=None):
     # A reply's base is the bundle it names as synced; with any other base, or none, it is unknown and the reply deletes nothing.
     based = reply is None or base_manifest.get('id') == manifest.get('synced')
     if not based:
-        base_files = {}
+        base_files = read_bundle(sent)[1] if sent and os.path.isfile(sent) else {}
     store = manifest.get('store') or ''
     if not os.path.isabs(store):
         raise ValueError(f'{path}: the manifest names no store')

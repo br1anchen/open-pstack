@@ -20881,6 +20881,31 @@ class BundleReplySyncTests(unittest.TestCase):
         self.amp.keep_sent_bundle(thread, ['--attach', str(path)])
         return manifest['id']
 
+    def relay_to_role(self, role, name):
+        """The master relays a steer to the role (`relay-done` settles it): the bundle is kept by id as a direct send's is."""
+        from pstack_core.commands import relay
+
+        who, thread, _ = self.ROLES[role]
+        path = Path(self.tmp.name) / name
+        manifest = self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': who, 'pane': 'amp:1'},
+            {},
+        )
+        os.makedirs(self.amp.relays_dir(), exist_ok=True)
+        relay.settle(
+            {
+                'thread': thread,
+                'hash': 'h',
+                'id': 'r1',
+                'at': 1,
+                'bundle': str(path),
+            }
+        )
+        return manifest['id']
+
     def reply_from(self, role, name, synced):
         """The role's reply: the store as it is now, packed by the role naming `synced` as the bundle it had applied."""
         who, thread, _ = self.ROLES[role]
@@ -20912,6 +20937,7 @@ class BundleReplySyncTests(unittest.TestCase):
             ('b: the role deleted its own unchanged file', 'sidekick', 'deleted', False, None),
             ('b: the same, after a newer bundle was sent', 'sidekick', 'deleted-newer', False, None),
             ('b: the same for a verifier', 'verifier', 'deleted', False, None),
+            ('b: the master relayed the bundle the role synced', 'sidekick', 'relayed', False, None),
             ('c: the reply names a bundle that is not kept', 'sidekick', 'deleted', True, 'bogus-id'),
             ('c: the reply names none', 'verifier', 'deleted', True, ''),
         )  # fmt: skip
@@ -20927,7 +20953,11 @@ class BundleReplySyncTests(unittest.TestCase):
                     self.send_to_role(role, 'newer.tgz')
                 else:
                     self.write(rel, 'base\n')
-                    snapshot = self.send_to_role(role, 'snapshot.tgz')
+                    snapshot = (
+                        self.relay_to_role(role, 'snapshot.tgz')
+                        if how == 'relayed'
+                        else self.send_to_role(role, 'snapshot.tgz')
+                    )
                     (self.store / rel).unlink()
                     reply = self.reply_from(
                         role, 'reply.tgz', snapshot if synced is None else synced
@@ -20941,6 +20971,26 @@ class BundleReplySyncTests(unittest.TestCase):
                     self.assertIn(unknown.format(synced or '(none named)'), out)
                 else:
                     self.assertNotIn('is not kept', out)
+
+    def test_an_unknown_base_takes_a_file_only_the_role_changed_silently_and_names_a_file_both_changed(
+        self,
+    ):
+        """The base the reply names is not kept, so nothing is deleted; the last bundle the master sent says whether the master changed the file too."""
+        rel = self.ROLES['sidekick'][2]
+        for label, master_edit, line in (
+            ('only the role changed it', None, False),
+            ('the master changed it too', 'master edit\n', True),
+        ):
+            with self.subTest(label):
+                self.tearDown_state()
+                self.write(rel, 'base\n')
+                self.send_to_role('sidekick', 'snapshot.tgz')
+                self.write(rel, 'role edit\n')
+                reply = self.reply_from('sidekick', 'reply.tgz', 'bogus-id')
+                self.write(rel, master_edit or 'base\n')
+                out = self.sync_reply(reply)
+                self.assertEqual((self.store / rel).read_text(), 'role edit\n', out)
+                self.assertEqual(f'conflicts, took theirs: {rel}' in out, line, out)
 
     def tearDown_state(self):
         """A fresh store, registry and kept bundles for the next row."""

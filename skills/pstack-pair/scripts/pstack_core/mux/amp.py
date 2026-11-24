@@ -383,18 +383,26 @@ def record_thread(thread, update):
     amp_routing.mirror(thread, doc[thread])
 
 
+def keep_bundle_by_id(thread, path):
+    """Keeps the bundle at `path`, sent to thread, under its manifest id, so a reply that names it as `synced` is merged against it. Only the newest
+    PSTACK_BUNDLE_KEEP (8, the same bound as the evidence refs of an apply) are kept; a file another process already removed is not an error."""
+    bundle_id = bundle.read_manifest(path).get('id')
+    if not (isinstance(bundle_id, str) and bundle_id):
+        return
+    kept = kept_sent_dir(thread)
+    os.makedirs(kept, exist_ok=True)
+    shutil.copyfile(path, os.path.join(kept, f'{bundle_id}.tgz'))
+    for old in sorted(os.listdir(kept))[: -max(env_int(bundle.KEEP_ENV, 8), 1)]:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(os.path.join(kept, old))
+
+
 def keep_sent_bundle(thread, attach):
     """The bundle a message to thread carried (attach is its `--attach FILE` pair, empty when it carried none), kept as what was sent to it."""
     if attach:
         os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
         shutil.copyfile(attach[1], sent_path(thread))
-        bundle_id = bundle.read_manifest(attach[1]).get('id')
-        if isinstance(bundle_id, str) and bundle_id:
-            kept = kept_sent_dir(thread)
-            os.makedirs(kept, exist_ok=True)
-            shutil.copyfile(attach[1], os.path.join(kept, f'{bundle_id}.tgz'))
-            for old in sorted(os.listdir(kept))[: -max(env_int(bundle.KEEP_ENV, 8), 1)]:
-                os.unlink(os.path.join(kept, old))
+        keep_bundle_by_id(thread, attach[1])
 
 
 def record_started(thread, name, store, created):
