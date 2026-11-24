@@ -17,7 +17,7 @@ from pstack_core.consult import discuss_with_consultant
 from pstack_core.errors import Die, MissingStore, translate
 from pstack_core.numbers import whole_number
 from pstack_core.panes import agent_status
-from pstack_core.store import field, get, pair_file, risk_of
+from pstack_core.store import field, get, header_field, pair_file, risk_of
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
@@ -81,6 +81,13 @@ def dispatch(ctx, args):
     else:
         require_pair(ctx, store)
         classify_brief(store, brief)
+        if risk_of(brief) == 'escalated' and header_field(brief, 'plan') in (
+            '',
+            'none',
+        ):
+            sys.stdout.write(
+                'warn: escalated brief has plan: none; an escalated unit normally goes through a plan round (kitchen.sh new-plan, discuss)\n'
+            )
         delivered = deliver(store, brief)
         if delivered:
             parts, tokens, pending = delivered

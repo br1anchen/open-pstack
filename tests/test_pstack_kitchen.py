@@ -4927,6 +4927,18 @@ esac
         out = self.dispatch(self.brief('004', 'disp', ['src/util.py']))
         self.assertIn('warn: Scope covers src/util.py', out)
 
+    def test_dispatch_warns_on_an_escalated_brief_with_no_plan(self):
+        warn = 'warn: escalated brief has plan: none'
+        routine = self.run_sh(
+            'classify', str(self.store), str(self.brief('001', 'r', ['src/util.py']))
+        )
+        self.assertNotIn(warn, routine)
+        out = self.dispatch(self.brief('002', 'e', ['contracts/**']), code=None)
+        self.assertIn(warn, out)
+        self.assertIn('kitchen.sh new-plan, discuss', out)
+        quiet = self.dispatch(self.brief('003', 'r2', ['src/util.py']))
+        self.assertNotIn(warn, quiet)
+
     ACCEPTANCE_071 = [
         '- `git grep -n -E "PAIR_WAIT_|PAIR_QUIET_WAIT|quiet_flagged|has_checkin|SWALLOWED|FLAGGED|unowned:" -- skills`',
         '- `git grep -n "captured(" -- skills/pstack-kitchen/scripts/kitchen_core/wait.py skills/pstack-kitchen/scripts/kitchen_core/dispatch.py`',
