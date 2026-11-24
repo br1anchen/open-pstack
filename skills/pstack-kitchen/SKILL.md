@@ -299,8 +299,8 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   commits, moves a clean checkout to the sender's HEAD when that loses no
   commit, and adds the scratch worktrees. Files over 1 MiB, locks and pid
   files stay home. A role's reply to the master changes only the files its own role owns,
-  since it is merged against the bundle the master sent that role last, which
-  can be newer than the snapshot the role worked from: the master's
+  since it is merged against the bundle the role synced, not the newest one the
+  master sent it, which can be newer than the snapshot the role worked from: the master's
   `pair.json` is kept whole, except that the current sidekick's completion
   (`sidekick.rotation_required` true, with the same sidekick generation, brief
   and dispatch generation on both sides) is taken; every other file the sender's
@@ -311,11 +311,16 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   added (a master-owned one is not), and a sender the registry does not name
   owns nothing, so it only adds. The sync line names each file it kept, under the owner whose copy stayed (`kept the master's copy of: ...`, `kept sidekick's copy of: ...`);
   only the shared append logs `events.tsv` and `gates.tsv` take the union of
-  their lines, and a reply that lacks one deletes nothing. A reply deletes
-  a file of its own role that it lacks only when this side still has the file as
-  the base had it, so a role's deletion of its own file goes through; a file this
-  side wrote or changed since the base, such as a report the master marked after
-  the role's snapshot, stays. A
+  their lines, and a reply that lacks one deletes nothing. Every bundle has an
+  `id` in its manifest and names, as `synced`, the id of the bundle its sender
+  last applied from the receiver; the master keeps the newest
+  `PSTACK_BUNDLE_KEEP` (8) bundles it sent each thread by id. A reply is merged
+  against the bundle it synced, so it deletes a file of its own role that it
+  lacks only when that bundle had the file and this side still has it as that
+  bundle had it: a role's deletion of its own file goes through, and a file this
+  side wrote or changed since, such as a verdict or a marked report, stays. A
+  reply whose `synced` id names no kept bundle deletes nothing, and the sync
+  prints `merge: the reply's base <id> is not kept; files it lacks are kept`. A
   bundle from the master, or from the master it took over from, is merged as
   before.
 - A role gets its setup once. Its first message (the bootstrap at spawn or
