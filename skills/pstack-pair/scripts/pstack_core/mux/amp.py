@@ -24,7 +24,7 @@ import uuid
 
 from .. import bundle, git, gitstore
 from ..argv import Spec, read
-from ..errors import PairError
+from ..errors import DamagedStore, PairError
 from ..numbers import env_int
 from ..secrets import REDACT_RULE
 from ..store import TEXT, expected_report, header_field, ready_file, revisions
@@ -597,10 +597,14 @@ def role_is_idle(store, doc, role):
         queued = os.path.isfile(queue) and os.path.getsize(queue) > 0
         from ..send import took_a_brief
 
+        try:
+            dispatched = took_a_brief(doc)
+        except DamagedStore:
+            return False
         brief = (doc.get('dispatch') or {}).get('brief') or ''
         return (
             (doc.get('sidekick') or {}).get('rotation_required') is True
-            and took_a_brief(doc)
+            and dispatched
             and not doc.get('verifying')
             and not queued
             and bool(brief)
