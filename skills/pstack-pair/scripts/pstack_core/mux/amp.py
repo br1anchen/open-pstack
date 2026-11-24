@@ -80,6 +80,45 @@ def sent_path(thread):
     return os.path.join(state_dir(), 'sent', f'{bundle.tag_of(thread)}.tgz')
 
 
+def kept_sent_dir(thread):
+    """The bundles this side sent to thread, each kept under its id (the newest PSTACK_BUNDLE_KEEP): a reply names the one it synced."""
+    return os.path.join(state_dir(), 'sent', bundle.tag_of(thread))
+
+
+def kept_sent_path(thread, bundle_id):
+    """The bundle this side sent to thread with this id, None when it names none or none is kept."""
+    if not bundle_id or os.sep in bundle_id or bundle_id.startswith('.'):
+        return None
+    path = os.path.join(kept_sent_dir(thread), f'{bundle_id}.tgz')
+    return path if os.path.isfile(path) else None
+
+
+def applied_path():
+    """The id of the last bundle this side applied from each sender: {thread: id}."""
+    return os.path.join(state_dir(), 'applied.json')
+
+
+def applied_id(thread):
+    """The id of the last bundle this side applied from thread, '' when none."""
+    found = load_json(applied_path()).get(thread)
+    return found if isinstance(found, str) else ''
+
+
+def record_applied(thread, bundle_id):
+    """Records bundle_id as the last bundle applied from thread; what the next bundle sent to it names as `synced`."""
+    if not (thread and bundle_id):
+        return
+    path = applied_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(f'{path}.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        doc = load_json(path)
+        doc[thread] = bundle_id
+        with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=1, sort_keys=True)
+        os.replace(f'{path}.tmp', path)
+
+
 def outbox_path():
     """What this side sent to each thread: {thread: {hash, id, at}}, so a repeated send of the same text is not delivered twice."""
     return os.path.join(state_dir(), 'outbox.json')
@@ -349,6 +388,13 @@ def keep_sent_bundle(thread, attach):
     if attach:
         os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
         shutil.copyfile(attach[1], sent_path(thread))
+        bundle_id = bundle.read_manifest(attach[1]).get('id')
+        if isinstance(bundle_id, str) and bundle_id:
+            kept = kept_sent_dir(thread)
+            os.makedirs(kept, exist_ok=True)
+            shutil.copyfile(attach[1], os.path.join(kept, f'{bundle_id}.tgz'))
+            for old in sorted(os.listdir(kept))[: -max(env_int(bundle.KEEP_ENV, 8), 1)]:
+                os.unlink(os.path.join(kept, old))
 
 
 def record_started(thread, name, store, created):
@@ -1204,6 +1250,7 @@ class Amp(Subagents):
                 self.agents(),
                 text,
                 branches,
+                applied_id(thread) if thread else '',
             )
             attach = ['--attach', path]
         build_path = os.path.join(tmp, 'pstack-build.tgz')
@@ -1386,6 +1433,7 @@ class Amp(Subagents):
                 {'name': name, 'pane': found[1]['pane']},
                 self.agents(),
                 text,
+                synced=applied_id(thread),
             )
             size = os.path.getsize(path)
             if size > RELAY_LIMIT:
