@@ -15778,6 +15778,14 @@ class AmpKitchenTests(KitchenScriptTests):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.set_state(amp_thread(1), 'tool_use')
 
+    def sidekick_fresh_generation_not_yet_dispatched(self):
+        """A rotation whose new thread wrote READY and kept the rotation flag: the done report on file belongs to the previous generation."""
+        thread = self.sidekick_done_idle()
+        pair = self.state()
+        pair['sidekick']['generation'] = pair['dispatch']['generation'] + 1
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        return thread
+
     def sidekick_with_an_open_dispatch(self):
         """rotation_required is true again (a stale bundle sets it back) while the dispatched brief has no report."""
         self.sidekick_partial()
@@ -15820,6 +15828,7 @@ class AmpKitchenTests(KitchenScriptTests):
             ('a done sidekick, idle', self.sidekick_done_idle, True, 1),
             ('a sidekick under verification', self.sidekick_under_verification, False, 2),
             ('a sidekick in a turn', self.sidekick_in_a_turn, False, 2),
+            ('a fresh generation not yet dispatched to', self.sidekick_fresh_generation_not_yet_dispatched, False, 2),
             ('a sidekick with a partial report', self.sidekick_partial, False, 2),
             ('a sidekick with an open dispatch', self.sidekick_with_an_open_dispatch, False, 2),
             ('a consultant, all advice answered', lambda: self.consultant_with(True), True, 2),
