@@ -11,7 +11,7 @@ none
 
 ## Checked
 
-- joo 2026-11-24T13-17-52-337Z-54331eaa (699837d8..97366025): 3 medium, 7 low. Verifier 047-v1 open; the fix (049) is verified with --covers 047.
+- joo 2026-11-24T13-17-52-337Z-54331eaa (699837d8..97366025): 3 medium, 7 low. verdicts/047-bundle-and-rotation-fixes-v1.md: clean (Acceptance proven); it does not cover joo's regressions, which the brief did not ask about. The fix (049) is verified with --covers 047.
 
 ## Blocking
 

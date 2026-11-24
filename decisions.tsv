@@ -155,3 +155,5 @@ ts	phase	decision	why	evidence	result
 2026-11-24T12:24:21Z	steer-047	047 blocked by two gate failures at step 4 (Die in a helper); steered to RotateRefused, then steps 5-6	report 047	steers/047-s1	sidekick resumes
 2026-11-24T13:21:17Z	review-047	047 revise: joo 3 mediums (fresh sidekick read idle; fetch on every send; doc) + role deletions lost; fix 049 after 048	joo 54331eaa	reviews/047, briefs/049	048 waits on the new sidekick's READY; 049 queued after
 2026-11-24T13:22:30Z	archive	archive sidekick T-01a20a70-a13e-7108-b446-3b81278c27ce	no longer used by the store; a brief is being sent	amp threads archive T-01a20a70-a13e-7108-b446-3b81278c27ce	archived
+2026-11-24T13:34:02Z	archive	archive verifier T-01a20db4-e855-7372-bf97-96acf34ecdf4	no longer used by the store; its verdict is recorded	amp threads archive T-01a20db4-e855-7372-bf97-96acf34ecdf4	archived
+2026-11-24T13:34:04Z	verify-047	047 verdict clean; review stays revise for joo's regressions	verdict 047-v1	reviews/047	049 queued after 048

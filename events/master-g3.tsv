@@ -182,3 +182,10 @@
 2026-11-24T13:22:30Z	1795526550	master	log	-	archive: archive sidekick T-01a20a70-a13e-7108-b446-3b81278c27ce
 2026-11-24T13:22:33Z	1795526553	master	spawn	-	sidekick:amp:ready
 2026-11-24T13:22:34Z	1795526554	master	send-brief	048-landing-rebase-4	
+2026-11-24T13:22:49Z	1795526569	master	queue	049-bundle-and-rotation-fixes-2	
+2026-11-24T13:34:02Z	1795527242	master	archive	-	verifier:T-01a20db4-e855-7372-bf97-96acf34ecdf4
+2026-11-24T13:34:02Z	1795527242	master	log	-	archive: archive verifier T-01a20db4-e855-7372-bf97-96acf34ecdf4
+2026-11-24T13:34:02Z	1795527242	master	verify	047-bundle-and-rotation-fixes	clean
+2026-11-24T13:34:02Z	1795527242	master	wake	047-bundle-and-rotation-fixes	verify:clean
+2026-11-24T13:34:04Z	1795527244	master	log	-	verify-047: 047 verdict clean; review stays revise for joo's regressions
+2026-11-24T13:55:18Z	1795528518	master	send-verify	-	claude:landing
