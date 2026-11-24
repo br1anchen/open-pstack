@@ -20362,6 +20362,17 @@ class WaitSeamTests(DispatchedStore):
         self.assertEqual(self.printed[:2], ['state: blocked\n', 'report: missing\n'])
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'blocked']])
 
+    def test_a_blocked_sidekick_whose_pane_shows_the_busy_footer_takes_the_check_in(
+        self,
+    ):
+        with mock.patch.object(wait, 'pane_busy', return_value=True):
+            got = self.finish('blocked', state='blocked')
+        self.assertEqual((got.status, got.kind), (4, 'checkin'))
+        self.assertEqual(
+            self.printed[0],
+            'state: working (blocked banner on screen, but the pane shows the agent busy)\n',
+        )
+
     def test_a_blocked_sidekick_ends_a_wait_whose_fetch_failed_blocked_not_unknown(
         self,
     ):
