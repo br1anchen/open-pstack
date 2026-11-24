@@ -17,6 +17,7 @@ from pstack_core.argv import read as read_options
 from pstack_core.commands import close as close_store
 from pstack_core.commands import nest
 from pstack_core.commands.rotate import archive_retired
+from pstack_core.commands.stop import require_roles_awake
 from pstack_core.errors import (
     DamagedStore,
     Die,
@@ -28,7 +29,7 @@ from pstack_core.errors import (
     ToolFailed,
 )
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
-from pstack_core.mux import amp_routing
+from pstack_core.mux import amp, amp_routing
 from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import (
     agent_kind,
@@ -59,6 +60,7 @@ from pstack_core.store import (
     update,
     who,
 )
+from pstack_core.variant import load_skill_variant
 
 from . import kpy
 from .landing import playbooks
@@ -164,6 +166,16 @@ def close_role(store, role):
     return True
 
 
+def stop(ctx, args):
+    """The trio's stop, after a check that no role it will message is snoozed: the refusal comes before the queue is cleared or an event is
+    logged, and names every snoozed thread."""
+    if args and os.path.isfile(f'{args[0]}/pair.json'):
+        opts = read_options(args[1:], Spec(valued=('--only', '--timeout', '--every')))
+        require_roles_awake(ctx, args[0], opts.last('--only', ''))
+    trio = load_skill_variant(Path(ctx.skill_root).parent, 'pstack-trio')
+    return trio.commands['stop'](ctx, args)
+
+
 def close(ctx, args):
     require_mux()
     if not args:
@@ -184,6 +196,13 @@ def close(ctx, args):
                 f'the sidekick is working; kitchen.sh stop {store} first, or pass --force',
                 5,
             )
+    amp.require_awake(
+        store,
+        *(
+            mux.get().role_thread(field(store, role, 'name'))
+            for role in ('verifier', 'consultant', 'sidekick')
+        ),
+    )
     failed = False
     for role in ('verifier', 'consultant', 'sidekick'):
         if not close_role(store, role):
