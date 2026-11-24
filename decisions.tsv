@@ -157,3 +157,6 @@ ts	phase	decision	why	evidence	result
 2026-11-24T13:22:30Z	archive	archive sidekick T-01a20a70-a13e-7108-b446-3b81278c27ce	no longer used by the store; a brief is being sent	amp threads archive T-01a20a70-a13e-7108-b446-3b81278c27ce	archived
 2026-11-24T13:34:02Z	archive	archive verifier T-01a20db4-e855-7372-bf97-96acf34ecdf4	no longer used by the store; its verdict is recorded	amp threads archive T-01a20db4-e855-7372-bf97-96acf34ecdf4	archived
 2026-11-24T13:34:04Z	verify-047	047 verdict clean; review stays revise for joo's regressions	verdict 047-v1	reviews/047	049 queued after 048
+2026-11-24T13:58:04Z	review-048	joo on landing stack 4: 14 lows, no medium; none blocks the approved push	joo d4633254	followups.md	landing-v4 verifier running; 049 dispatched
+2026-11-24T14:21:30Z	archive	archive verifier T-01a20dd7-0b57-76d3-87ee-af196107a581	no longer used by the store; its verdict is recorded	amp threads archive T-01a20dd7-0b57-76d3-87ee-af196107a581	archived
+2026-11-24T14:22:14Z	land-4	push of fa6cd2a6 refused: main moved to 3b951444 (13 commits by Brian); landing-rebase-5 queued after 049	git merge-base --is-ancestor origin/main fa6cd2a6 false	briefs/050	re-verify --landing, land-check, then push under the same approval

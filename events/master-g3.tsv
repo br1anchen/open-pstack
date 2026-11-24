@@ -194,3 +194,11 @@
 2026-11-24T13:56:26Z	1795528586	master	nest	-	T-01a20dd7-0b57-76d3-87ee-af196107a581 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-24T13:56:33Z	1795528593	master	reuse	049-bundle-and-rotation-fixes-2	sidekick: pstack, pstack-docs, context 11%
 2026-11-24T13:56:43Z	1795528603	master	send-brief	049-bundle-and-rotation-fixes-2	
+2026-11-24T13:58:04Z	1795528684	master	log	-	review-048: joo on landing stack 4: 14 lows, no medium; none blocks the approved push
+2026-11-24T14:21:30Z	1795530090	master	archive	-	verifier:T-01a20dd7-0b57-76d3-87ee-af196107a581
+2026-11-24T14:21:30Z	1795530090	master	log	-	archive: archive verifier T-01a20dd7-0b57-76d3-87ee-af196107a581
+2026-11-24T14:21:30Z	1795530090	master	verify	-	clean
+2026-11-24T14:21:30Z	1795530090	master	wake	-	verify:clean
+2026-11-24T14:22:14Z	1795530134	master	queue	050-landing-rebase-5	
+2026-11-24T14:22:14Z	1795530134	master	log	-	land-4: push of fa6cd2a6 refused: main moved to 3b951444 (13 commits by Brian); landing-rebase-5 queued after 049
+2026-11-24T15:21:10Z	1795533670	master	send-verify	049-bundle-and-rotation-fixes-2	claude:047 049

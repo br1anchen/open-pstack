@@ -11,7 +11,7 @@
     "tab_id": "",
     "registered_at": "2026-11-21T14:22:42Z",
     "permission_mode": "auto",
-    "units_since_handoff": 9,
+    "units_since_handoff": 10,
     "generation": 3,
     "landed_since_handoff": true,
     "sessions": [
@@ -89,7 +89,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:14",
+    "pane_id": "amp:15",
     "kind": "claude",
     "started_at": null
   },
@@ -109,7 +109,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "049-bundle-and-rotation-fixes-2-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "title": "kitchen-followups master",
@@ -331,5 +333,35 @@
   "landing": {
     "parent": "699837d853a868ed785fa843cb167ee3e559c3bc",
     "parent_ref": "699837d8"
+  },
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/049-bundle-and-rotation-fixes-2-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/049-bundle-and-rotation-fixes-2-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/049-bundle-and-rotation-fixes-2.md",
+    "scratch": "049-bundle-and-rotation-fixes-2-verify",
+    "units": "047 049",
+    "risk": "escalated",
+    "sample": 1.0,
+    "unit": "049-bundle-and-rotation-fixes-2",
+    "started": 1795533670,
+    "deadline": 1795536370,
+    "class": "escalated",
+    "entry": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "claude-opus-5-5"
+      ],
+      "fallback": null,
+      "fallbacks": [],
+      "source": "default"
+    },
+    "retried": false,
+    "argv": [
+      "049",
+      "--covers",
+      "047"
+    ],
+    "delivered": false
   }
 }

@@ -85,3 +85,13 @@
 - stop.py:187 (low): no test of pair.sh stop on a snoozed sidekick, or of `--only`.
 - master.md:96 (low): a refused multi-thread `--done` leaves the other threads snoozed in Amp with no row; say to undo or rerun for them.
 - Scope: tests/test_pstack_pair.py's HELP golden got the snooze lines (outside Scope, needed; amendment in review 046).
+
+## Landing stack 4 (joo 2026-11-24T13-55-19-294Z-d4633254 on 699837d8..fa6cd2a6): 14 low, no medium
+
+- nest.py:279: the archived-thread unarchive step prints after the generic parent lines; a top-to-bottom master sets the parent on an archived thread first. Put unarchive first or leave archived rows out of the generic lines.
+- nest.py:135: each take-master re-queues every historic thread (archived ones need three calls), so nest work grows with every rotation.
+- master.py:175: the snooze pre-check is in the kitchen's stop wrapper only; the trio's stop still clears the queue first.
+- amp.py:367: Amp.send writes nest lines to stdout (library-level side effect).
+- snooze.py:177: a refused multi-thread --done does not say the accepted ones were unrecorded; SKILL.md:567 claims the undo hint for the unknown-thread refusal too.
+- dispatch.py:101: pre-check skips rotate_if_due's gitstore refresh.
+- Tests: nest archived test needs a non-archived row; stop --only; rotates_before_sending failed-over/bootstrap-pending branches.
