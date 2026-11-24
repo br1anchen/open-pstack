@@ -7,21 +7,38 @@ import contextlib
 import io
 import os
 import sys
+import tempfile
+from pathlib import Path
 
-from pstack_core import send
+from pstack_core import mux, send
 from pstack_core.argv import Spec, read
+from pstack_core.checkin import scope_entries
+from pstack_core.commands import snooze
 from pstack_core.commands.report import require_pair
 from pstack_core.commands.rotate import queue as core_queue
-from pstack_core.commands.rotate import rotate_if_due
+from pstack_core.commands.rotate import rotate_if_due, session_decision
 from pstack_core.consult import discuss_with_consultant
 from pstack_core.errors import Die, MissingStore, translate
 from pstack_core.gates import PLAN_PLAYBOOKS
+from pstack_core.mux import amp
 from pstack_core.numbers import whole_number
 from pstack_core.panes import agent_status
-from pstack_core.store import field, get, header_field, pair_file, risk_of
+from pstack_core.store import (
+    count,
+    field,
+    get,
+    header_field,
+    load,
+    pair_file,
+    peek,
+    read_flag,
+    risk_of,
+    rotation_required,
+)
 from pstack_core.wait import default_signals
 
-from .classify import classify_brief
+from . import kpy
+from .classify import brief_escalations, brief_kitchen, classify_brief
 from .landing import is_landing, land_check_problems
 from .master import ROTATE_DUE_EXIT, rotate_notice
 from .playbook_delivery import (
@@ -70,6 +87,53 @@ def warn_unplanned_escalation(brief):
         )
 
 
+def keeps_session_for(store, brief):
+    """Whether the sidekick would keep its session for brief once classify has stamped it, asked without stamping anything: the kitchen classifies the
+    brief's Scope, and session_decision reads the risk and profiles that classification gives. A brief or kitchen that cannot be classified here is
+    not said to keep it; the guard in the send refuses it later."""
+    globs = scope_entries(brief, 'may')
+    cfg = brief_kitchen(brief)
+    try:
+        data = kpy.kitchen_py.classify_change(
+            kpy.invocation(store, config=cfg[1] if cfg else None),
+            paths=globs,
+            escalate=tuple(brief_escalations(brief)),
+        )
+    except kpy.KitchenError:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        stamped = Path(tmp, 'brief.md')
+        stamped.write_text(
+            f'risk: {data.get("risk") or ""}\nprofiles: {", ".join(data["profiles"])}\n'
+        )
+        return bool(session_decision(store, str(stamped))[0])
+
+
+def rotates_before_sending(store, brief):
+    """Whether this dispatch starts a fresh sidekick thread, as rotate_if_due will decide: a unit is done, the replacement is not still
+    bootstrapping, and the sidekick failed over or does not keep its session for this brief."""
+    if (
+        not rotation_required(store)
+        or read_flag(store, 'sidekick.bootstrap_pending') is True
+    ):
+        return False
+    if count(peek(load(store), 'sidekick'), 'chain_index') > 0:
+        return True
+    return not keeps_session_for(store, brief)
+
+
+def require_sidekick_awake(store, brief):
+    """Refuses a brief for a snoozed sidekick before classify, the playbook, the rotation check or the archive sweep print or change anything. A
+    dispatch that rotates sends to a fresh thread, which was never snoozed, so it goes on."""
+    thread = mux.get().role_thread(field(store, 'sidekick', 'name'))
+    if (
+        thread
+        and snooze.state_of(store, thread) == snooze.SNOOZED
+        and not rotates_before_sending(store, brief)
+    ):
+        amp.require_awake(store, thread)
+
+
 def dispatch(ctx, args):
     default_signals()
     if len(args) < 2:
@@ -86,6 +150,8 @@ def dispatch(ctx, args):
         brief = f'{store}/{brief}'
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
+    if has_pair(store):
+        require_sidekick_awake(store, brief)
     if refused_status := rotate_gate(store):
         return refused_status
     landing = is_landing(brief)

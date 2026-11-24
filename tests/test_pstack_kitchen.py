@@ -15175,6 +15175,31 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('snoozed:', out)
         self.assertIn('closed ', out)
 
+    def test_dispatch_to_a_snoozed_sidekick_prints_only_the_refusal_and_archives_nothing(
+        self,
+    ):
+        """A snoozed sidekick that keeps its session is refused before classify prints its lines or the archive sweep runs; the same dispatch
+        to a sidekick that rotates is not refused, since a fresh thread was never snoozed."""
+        sidekick = amp_thread(1)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        self.snooze_rows((sidekick, 'sidekick'))
+        same = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        before = self.store_snapshot()
+        out = self.merged('dispatch', str(self.store), str(same), code=5)
+        self.assertEqual(
+            out.strip().splitlines(),
+            [
+                f'kitchen.sh: snoozed: {sidekick} is snoozed; call update_thread(thread={sidekick}, snooze="off"), '
+                f'then kitchen.sh snooze {self.store} --wake {sidekick}, then run this again'
+            ],
+        )
+        self.assertEqual(self.store_snapshot(), before)
+        docs = self.brief('003', 'docs', ['docs/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(docs), code=4)
+        self.assertIn('rotate: profiles', out)
+        self.assertNotIn('snoozed:', out)
+
     def test_status_names_the_role_threads_due_for_snoozing_and_a_role_in_error_for_the_human(
         self,
     ):
