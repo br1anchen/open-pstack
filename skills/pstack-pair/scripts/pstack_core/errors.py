@@ -42,6 +42,11 @@ class ToolFailed(PairError):
         super().__init__(message)
 
 
+class SnoozeRefused(PairError):
+    """`snooze --done` will not record a thread as snoozed (a master, or a thread that is not snoozable now); the message says how to undo an Amp snooze
+    that was made already."""
+
+
 class RotationFailed(ToolFailed):
     """The rotation a brief or plan waits on ended with the status of the rotate command, whose output the message carries."""
 
