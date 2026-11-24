@@ -392,9 +392,17 @@ def progress_section(store, interval, now, cwd, head, run):
 
 
 def commits_since(cwd, head, since):
-    """(files, count) of the non-merge commits of head..HEAD committed at or after the epoch since."""
+    """(files, count) of the non-merge commits of head..HEAD committed at or after the epoch since, leaving out those whose patch the history of head
+    already holds (rebased or reworded commits)."""
     log = git.out(
-        cwd, 'log', '--no-merges', '--format=%x00%ct', '--name-only', f'{head}..HEAD'
+        cwd,
+        'log',
+        '--no-merges',
+        '--right-only',
+        '--cherry-pick',
+        '--format=%x00%ct',
+        '--name-only',
+        f'{head}...HEAD',
     )
     files, count = [], 0
     for record in (log or '').split('\0')[1:]:
@@ -408,7 +416,8 @@ def commits_since(cwd, head, since):
 def touched_section(store, brief, seq, cwd, head, since=None):
     """(lines, outside) of the files changed since dispatch: those in the tree's status or committed since the head, how many commits, and the files
     outside the brief's Scope and the steers' scope effects (the lessons file the master commits in the shared tree is never outside). When HEAD
-    is not a descendant of the head (the sidekick switched branch or rebased), only the commits made since the dispatch epoch count."""
+    is not a descendant of the head (the sidekick switched branch or rebased), only the commits made since the dispatch epoch count, and not those rebased or
+    reworded with a patch the head's history already holds."""
     touched = status_paths(cwd)
     commits = 0
     moved = ''
