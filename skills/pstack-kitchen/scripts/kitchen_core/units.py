@@ -430,6 +430,15 @@ class Verdict:
         return '' if fences >= 2 else 'no command output under Evidence'
 
 
+def trunk_merge_base(root, head):
+    """The merge-base of the repo's trunk and head, or '' when trunk or the merge-base is unknown."""
+    trunk = trunk_ref(root) or ''
+    if not trunk:
+        return ''
+    merged = git.run(root, 'merge-base', trunk, head)
+    return merged.stdout.rstrip('\n') if merged.returncode == 0 else ''
+
+
 def landing_base(store, root, head, parent_override='', parent_label='', range_base=''):
     """Where a stack at head leaves trunk, or at the parent recorded in the store (the one `verify --landing --parent` recorded earlier, else the
     override of this call), while that parent is an ancestor of head. Prints the `landing base:` line and returns the revision; its refusals end
@@ -442,6 +451,13 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
     if parent and not range_base:
         found = commit_of(root, parent) or ''
         if found and found != head and is_ancestor(root, found, head):
+            moved = '' if parent_override else trunk_merge_base(root, head)
+            if moved and moved not in (found, head) and is_ancestor(root, found, moved):
+                name = (trunk_ref(root) or '').removeprefix('refs/')
+                sys.stdout.write(
+                    f'landing base: recorded parent {label} ({found[:9]}) is behind {name}; using the merge-base of {name} and HEAD ({moved[:9]})\n'
+                )
+                return moved
             sys.stdout.write(f'landing base: recorded parent {label} ({found[:9]})\n')
             return found
         if parent_override:
