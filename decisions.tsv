@@ -147,3 +147,5 @@ ts	phase	decision	why	evidence	result
 2026-11-24T00:53:09Z	archive	archive verifier T-01a20aff-5bff-71ff-b2b6-1f81dcef72ee	no longer used by the store; its verdict is recorded	amp threads archive T-01a20aff-5bff-71ff-b2b6-1f81dcef72ee	archived
 2026-11-24T00:53:37Z	land-3	pushed 699837d8 to main (eb8228f9..699837d8, 15 commits: 038, 043, 010, 039, 042, 044 via 045)	Brian's third approval; landing-v3 clean; land-check pass	git push origin 699837d8:main	040 and 046 next; each later push needs approval
 2026-11-24T09:47:07Z	plan	046 snooze-stop-and-done dispatched from main 699837d8; bundle/spawn mediums and s4-hero gaps 5-6 split to 047	Brian: write and dispatch 046; the two sets touch different files	briefs/046, followups.md	kept sidekick g17; 047 next
+2026-11-24T10:58:53Z	review-046	046 joo: 1 medium (dispatch rotation prediction for empty profiles), 6 lows; non-blocking, to followups	joo 4cddfa4c	followups.md	verifier 046 running; write 047 meanwhile
+2026-11-24T11:13:05Z	archive	archive verifier T-01a20d34-02f1-733c-bfc0-70119fa899e8	no longer used by the store; its verdict is recorded	amp threads archive T-01a20d34-02f1-733c-bfc0-70119fa899e8	archived

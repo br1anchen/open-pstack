@@ -78,3 +78,10 @@
 
 - Brief 046 snooze-stop-and-done: the snooze findings (landing 3 joo, 043 joo medium, 043 verdict observation, help line).
 - Brief 047 (next): the second landing's joo mediums (bundle.py:379, :173, :258; spawn.py:226), s4-hero gaps 5-6. The 040 low (process_prog) and nest.py lows go with 040's landing, since 040 changes nest.py and is not on main.
+
+## 046 (joo 2026-11-24T10-57-02-640Z-4cddfa4c): 1 medium, 6 low, none blocking
+
+- dispatch.py:92 (medium): the rotation prediction stamps empty profiles differently from classify_brief, so for a store-only brief it can disagree with rotate_if_due: either the late send.py guard catches it, or a dispatch that would rotate is refused (recoverable by --wake). Share one predicate with rotate_if_due (dispatch.py:98 low), and on a classify error refuse instead of assuming a rotation (dispatch.py:88 low); classify against the stamped kitchen (dispatch.py:79 low).
+- stop.py:187 (low): no test of pair.sh stop on a snoozed sidekick, or of `--only`.
+- master.md:96 (low): a refused multi-thread `--done` leaves the other threads snoozed in Amp with no row; say to undo or rerun for them.
+- Scope: tests/test_pstack_pair.py's HELP golden got the snooze lines (outside Scope, needed; amendment in review 046).
