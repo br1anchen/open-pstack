@@ -5,15 +5,15 @@
   "cwd": "/home/user/workspace/repo",
   "git_root": "/home/user/workspace/repo",
   "master": {
-    "name": "kitchen-followups-master",
-    "pane_id": "amp:T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
+    "name": "kitchen-followups-master-g4",
+    "pane_id": "amp:18",
     "workspace_id": "",
     "tab_id": "",
-    "registered_at": "2026-11-21T14:22:42Z",
+    "registered_at": "2026-11-24T17:12:38Z",
     "permission_mode": "auto",
-    "units_since_handoff": 12,
-    "generation": 3,
-    "landed_since_handoff": true,
+    "units_since_handoff": 0,
+    "generation": 4,
+    "landed_since_handoff": false,
     "sessions": [
       {
         "generation": 1,
@@ -26,12 +26,18 @@
         "session": "",
         "handoff": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/sessions/master-2-handoff.md",
         "at": "2026-11-21T14:22:42Z"
+      },
+      {
+        "generation": 3,
+        "session": "",
+        "handoff": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/sessions/master-3-handoff.md",
+        "at": "2026-11-24T17:12:38Z"
       }
     ],
-    "rotate_due": {
-      "at": "2026-11-24T17:12:01Z",
-      "reason": "compacted",
-      "generation": 3
+    "previous": {
+      "name": "kitchen-followups-master",
+      "pane_id": "amp:T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
+      "session": ""
     }
   },
   "sidekick": {
