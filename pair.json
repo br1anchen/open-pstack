@@ -91,8 +91,7 @@
         "reason": "Amp credit balance low: GLM sidekick g14 cannot run",
         "at": "2026-11-21T12:25:27Z"
       }
-    ],
-    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/051-reply-names-its-base.md"
+    ]
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -194,21 +193,21 @@
   ],
   "placement": "split",
   "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/051-reply-names-its-base.md"
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/052-relay-keeps-bundle-id.md"
   ],
   "dispatch": {
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/051-reply-names-its-base.md",
-    "at": "2026-11-24T15:46:13Z",
-    "head": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/052-relay-keeps-bundle-id.md",
+    "at": "2026-11-24T17:15:16Z",
+    "head": "29cc53c2e8a65114086f9ec00042f5dd64d4b469",
     "generation": 18,
     "sidekick": "amp claude-code claude-sonnet-5-5",
     "report_order": 0
   },
   "sent": {
-    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/051-reply-names-its-base.md",
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/052-relay-keeps-bundle-id.md",
     "kind": "BRIEF",
-    "at": "2026-11-24T15:46:13Z",
-    "epoch": 1795535173
+    "at": "2026-11-24T17:15:16Z",
+    "epoch": 1795540516
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -250,7 +249,8 @@
     "048-landing-rebase-4": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "049-bundle-and-rotation-fixes-2": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "050-landing-rebase-5": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
-    "051-reply-names-its-base": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf"
+    "051-reply-names-its-base": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
+    "052-relay-keeps-bundle-id": "29cc53c2e8a65114086f9ec00042f5dd64d4b469"
   },
   "sidekick_models": {
     "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
@@ -292,7 +292,8 @@
     "048-landing-rebase-4": "amp claude-code claude-sonnet-5-5",
     "049-bundle-and-rotation-fixes-2": "amp claude-code claude-sonnet-5-5",
     "050-landing-rebase-5": "amp claude-code claude-sonnet-5-5",
-    "051-reply-names-its-base": "amp claude-code claude-sonnet-5-5"
+    "051-reply-names-its-base": "amp claude-code claude-sonnet-5-5",
+    "052-relay-keeps-bundle-id": "amp claude-code claude-sonnet-5-5"
   },
   "sidekick_threads": {
     "amp anthropic/claude-sonnet-5-5": [
