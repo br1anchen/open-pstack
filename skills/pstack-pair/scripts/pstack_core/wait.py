@@ -164,6 +164,11 @@ def state_line(store, result, write):
             sys.stderr.write(f'{result.err}\n')
     else:
         state = result.status or 'settled'
+    if state == 'blocked' and pane_busy(field(store, 'sidekick', 'name')):
+        write(
+            'state: working (blocked banner on screen, but the pane shows the agent busy)\n'
+        )
+        return 'working'
     write(f'state: {state}\n')
     return state
 
@@ -307,7 +312,7 @@ def finish_wait(
         wake(ctx, store, running, why or 'blocked')
         write(provider_hint(store))
         return WaitOutcome(3, 'blocked', unready=bool(withheld), paused=paused)
-    if agent_status(name()) == 'working' or activity:
+    if state == 'working' or agent_status(name()) == 'working' or activity:
         if not quiet:
             wake(ctx, store, running, why or 'checkin')
         digest = checkin(ctx, store, interval, clock())
