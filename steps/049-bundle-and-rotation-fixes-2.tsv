@@ -1,0 +1,6 @@
+1	e12a83647501d16523d90325f67a28dcf1def58f	1795530137		step 1: a generation not yet dispatched to is in use (and the snooze fixtures name their generation)
+2	9e102b4fda7fd3e43d48b5648cf03e9874ac1ba8	1795530688		step 2: only a hand-over fetches origin; evidence cut at the tracking ref
+3	89fd0096af128c2dbc012b55719e71cfdb9fc0d9	1795531261		step 3: a reply deletes its own role's unchanged file and keeps one the master wrote since
+4	3fe31eae8a97b620d2e485e67fcbcaad7852c462	1795531813		step 4: the unshallow fallback fetch has its own timeout
+5	02787dd2e6278a63a45b2c5e24da76a549f88112	1795532375		step 5: spawn forces permission none only for recorded args; RotateRefused covers a role rotation
+6	648f31bfbc25a86d5a5b5c5106ce4d56e60778b0	1795532977		step 6: SKILL.md says what pack does; SPEC regenerated

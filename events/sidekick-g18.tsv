@@ -3,3 +3,13 @@
 2026-11-24T13:54:29Z	1795528469	sidekick	finish-verify-pass	048-landing-rebase-4	fa6cd2a6f
 2026-11-24T13:54:29Z	1795528469	sidekick	rotation-required	048-landing-rebase-4	generation:18 sha256:e9aaef960fe4
 2026-11-24T13:54:32Z	1795528472	sidekick	report	048-landing-rebase-4	done
+2026-11-24T14:09:27Z	1795529367	sidekick	gate-fail	049-bundle-and-rotation-fixes-2	3d1d19c43 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/049-bundle-and-rotation-fixes-2-3d1d19c43b2c/out.1
+2026-11-24T14:22:17Z	1795530137	sidekick	step	049-bundle-and-rotation-fixes-2	1:e12a83647
+2026-11-24T14:31:28Z	1795530688	sidekick	step	049-bundle-and-rotation-fixes-2	2:9e102b4fd
+2026-11-24T14:41:01Z	1795531261	sidekick	step	049-bundle-and-rotation-fixes-2	3:89fd0096a
+2026-11-24T14:50:13Z	1795531813	sidekick	step	049-bundle-and-rotation-fixes-2	4:3fe31eae8
+2026-11-24T14:59:35Z	1795532375	sidekick	step	049-bundle-and-rotation-fixes-2	5:02787dd2e
+2026-11-24T15:09:37Z	1795532977	sidekick	step	049-bundle-and-rotation-fixes-2	6:648f31bfb
+2026-11-24T15:20:26Z	1795533626	sidekick	finish-verify-pass	049-bundle-and-rotation-fixes-2	648f31bfb
+2026-11-24T15:20:26Z	1795533626	sidekick	rotation-required	049-bundle-and-rotation-fixes-2	generation:18 sha256:babf356795e2
+2026-11-24T15:20:28Z	1795533628	sidekick	report	049-bundle-and-rotation-fixes-2	done

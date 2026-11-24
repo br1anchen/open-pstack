@@ -1,0 +1,16 @@
+{
+ "code": [
+  "648f31bfbc25a86d5a5b5c5106ce4d56e60778b0"
+ ],
+ "generation": 18,
+ "outputs": [
+  {
+   "path": "reports/049-bundle-and-rotation-fixes-2.md",
+   "sha256": "babf356795e2401e99349fb69c72ca61d05107d397afe03b7cf72867adcbd084"
+  }
+ ],
+ "request": "8f99b9cf97c8",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20db5-f98d-70f3-87e0-b2323c3b3bac"
+}
