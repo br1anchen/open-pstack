@@ -146,7 +146,7 @@ def sync(ctx, args):
                 if reply
                 else amp.sent_path(sender)
             )
-            manifest, lines = bundle.apply(path, base, reply)
+            manifest, lines = bundle.apply(path, base, reply, amp.sent_path(sender))
             if reply and reply.role and base is None:
                 lines.insert(
                     0,

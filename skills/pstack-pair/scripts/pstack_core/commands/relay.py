@@ -56,6 +56,8 @@ def settle(record):
             os.makedirs(os.path.dirname(amp.sent_path(thread)), exist_ok=True)
             shutil.copyfile(record['bundle'], amp.sent_path(thread))
     if os.path.isfile(record['bundle']):
+        # Kept by id whether or not a newer send holds the legacy base: the role synced this bundle, and its reply names it.
+        amp.keep_bundle_by_id(thread, record['bundle'])
         os.remove(record['bundle'])
     return newer
 
