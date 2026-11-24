@@ -1,0 +1,26 @@
+{
+ "args": [
+  "--mode",
+  "claude-code",
+  "--features",
+  "model:claude-sonnet-5-5"
+ ],
+ "generation": 0,
+ "kind": "amp",
+ "name": "kitchen-followups-verifier",
+ "pane": "amp:13",
+ "relays": [],
+ "requests": [
+  {
+   "at": 1795526284,
+   "hash": "0d14f436a0d457b9175bf18987428ba40a9196162703e9f75cc9494d300baccc",
+   "id": "e0046dcf984a",
+   "seq": 99,
+   "state": "pending"
+  }
+ ],
+ "role": "verifier",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "state": "started",
+ "thread": ""
+}
