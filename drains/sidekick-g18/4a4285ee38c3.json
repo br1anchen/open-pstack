@@ -1,0 +1,14 @@
+{
+ "code": [],
+ "generation": 18,
+ "outputs": [
+  {
+   "path": "reports/000-ready-g18.md",
+   "sha256": "1d39fc4622da142d4e148fa205cd9584a0600f996a6fb321fa962f954db885b3"
+  }
+ ],
+ "request": "4a4285ee38c3",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a20db5-f98d-70f3-87e0-b2323c3b3bac"
+}
