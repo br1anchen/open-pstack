@@ -160,3 +160,5 @@ ts	phase	decision	why	evidence	result
 2026-11-24T13:58:04Z	review-048	joo on landing stack 4: 14 lows, no medium; none blocks the approved push	joo d4633254	followups.md	landing-v4 verifier running; 049 dispatched
 2026-11-24T14:21:30Z	archive	archive verifier T-01a20dd7-0b57-76d3-87ee-af196107a581	no longer used by the store; its verdict is recorded	amp threads archive T-01a20dd7-0b57-76d3-87ee-af196107a581	archived
 2026-11-24T14:22:14Z	land-4	push of fa6cd2a6 refused: main moved to 3b951444 (13 commits by Brian); landing-rebase-5 queued after 049	git merge-base --is-ancestor origin/main fa6cd2a6 false	briefs/050	re-verify --landing, land-check, then push under the same approval
+2026-11-24T15:24:05Z	review-049	049 revise: joo medium, the late-reply deletion is back (base newer than the reply's snapshot); fix 051: the reply names the bundle it synced	joo 4a5793fb	reviews/049, briefs/051	051 queued after 050; verifier 047+049 running
+2026-11-24T15:37:30Z	verify-049	047+049 reject: late reply deletes a master-written verdict (= joo medium); brief 051 already fixes it, now restores 047's verifier subtest	verdict 049-v1	briefs/051, reviews/049	051 after 050

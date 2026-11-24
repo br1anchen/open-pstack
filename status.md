@@ -1,9 +1,9 @@
 # Kitchen status
 
-generated: 2026-11-24T12:24:30Z
+generated: 2026-11-24T15:36:34Z
 master: kitchen-followups-master (amp:T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6) working
 sidekick: kitchen-followups-sidekick (amp:1) working
-verifier: kitchen-followups-verifier (amp:12) absent
+verifier: kitchen-followups-verifier (amp:15) working
 consultant: kitchen-followups-consultant (amp:2) idle
 
 | seq | kind | unit | report | advice | review |
@@ -53,9 +53,15 @@ consultant: kitchen-followups-consultant (amp:2) idle
 | 044 | brief | roster-relay-repo | done | none | accept |
 | 045 | brief | landing-rebase-3 | done | none | accept |
 | 046 | brief | snooze-stop-and-done | done | none | accept |
-| 047 | brief | bundle-and-rotation-fixes | blocked | none | none |
-| 048 | brief | landing-rebase-4 | none | none | none |
+| 047 | brief | bundle-and-rotation-fixes | done | none | revise |
+| 048 | brief | landing-rebase-4 | done | none | accept |
+| 049 | brief | bundle-and-rotation-fixes-2 | done | none | revise |
+| 050 | brief | landing-rebase-5 | done | none | none |
+| 051 | brief | reply-names-its-base | none | none | none |
 
-latest report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/047-bundle-and-rotation-fixes.md
+latest report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/050-landing-rebase-5.md
 latest advice: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/advice/021-stop.md
-queued: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/048-landing-rebase-4.md
+queued: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/051-reply-names-its-base.md
+
+open scratch worktrees (remove with pair.sh scratch <store> <id> --remove):
+  049-bundle-and-rotation-fixes-2-verify

@@ -73,9 +73,9 @@
     "rotation_required": false,
     "delivered": {
       "generation": "18",
-      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "049-bundle-and-rotation-fixes-2",
+      "brief": "050-landing-rebase-5",
       "compactions": 0
     },
     "failovers": [
@@ -89,7 +89,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:15",
+    "pane_id": "amp:16",
     "kind": "claude",
     "started_at": null
   },
@@ -110,7 +110,7 @@
     "closed": false
   },
   "scratch": [
-    "049-bundle-and-rotation-fixes-2-verify"
+    "000-landing-verify"
   ],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
@@ -333,20 +333,20 @@
   },
   "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
   "landing": {
-    "parent": "699837d853a868ed785fa843cb167ee3e559c3bc",
-    "parent_ref": "699837d8"
+    "parent": "3b9514449d2a1f11c47e7388b76ae83876fb33aa",
+    "parent_ref": "3b951444"
   },
   "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/049-bundle-and-rotation-fixes-2-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/049-bundle-and-rotation-fixes-2-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/049-bundle-and-rotation-fixes-2.md",
-    "scratch": "049-bundle-and-rotation-fixes-2-verify",
-    "units": "047 049",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "049-bundle-and-rotation-fixes-2",
-    "started": 1795533670,
-    "deadline": 1795536370,
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/landing-v5.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/landing-v5-packet.md",
+    "brief": "-",
+    "scratch": "000-landing-verify",
+    "units": "landing",
+    "risk": "landing",
+    "sample": 0,
+    "unit": "landing",
+    "started": 1795535121,
+    "deadline": 1795537821,
     "class": "escalated",
     "entry": {
       "kind": "claude",
@@ -360,11 +360,12 @@
     },
     "retried": false,
     "argv": [
-      "049",
-      "--covers",
-      "047"
+      "--landing",
+      "--parent",
+      "3b951444",
+      "--head",
+      "29cc53c2e8a65114086f9ec00042f5dd64d4b469"
     ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-049-bundle-and-rotation-fixes-2-verify/T-01a20e25-aae3-770d-9ded-6a9fb9035479.jsonl"
+    "delivered": false
   }
 }
