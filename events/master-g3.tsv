@@ -218,3 +218,4 @@
 2026-11-24T15:46:01Z	1795535161	master	archive	-	verifier:T-01a20e25-aae3-770d-9ded-6a9fb9035479
 2026-11-24T15:46:01Z	1795535161	master	log	-	archive: archive verifier T-01a20e25-aae3-770d-9ded-6a9fb9035479
 2026-11-24T15:46:03Z	1795535163	master	reuse	051-reply-names-its-base	sidekick: pstack, pstack-docs, context 23%
+2026-11-24T15:46:13Z	1795535173	master	send-brief	051-reply-names-its-base	
