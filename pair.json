@@ -95,7 +95,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:17",
+    "pane_id": "amp:3",
     "kind": "claude",
     "started_at": null
   },
@@ -115,7 +115,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "052-relay-keeps-bundle-id-verify"
+  ],
   "anchor": {
     "thread": "T-01a20e8b-bf8a-750d-b627-0c6b74fa00b8",
     "title": "kitchen-followups master",
@@ -189,6 +191,10 @@
     {
       "path": "/home/user/.local/share/pstack-builds/3e7b1a1e4d7dda3f/skills",
       "at": "2026-11-24T17:13:35Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-24T17:40:05Z"
     }
   ],
   "placement": "split",
@@ -348,5 +354,39 @@
   "landing": {
     "parent": "3b9514449d2a1f11c47e7388b76ae83876fb33aa",
     "parent_ref": "3b951444"
+  },
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/052-relay-keeps-bundle-id-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/052-relay-keeps-bundle-id-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/052-relay-keeps-bundle-id.md",
+    "scratch": "052-relay-keeps-bundle-id-verify",
+    "units": "047 049 051 052",
+    "risk": "escalated",
+    "sample": 1.0,
+    "unit": "052-relay-keeps-bundle-id",
+    "started": 1795542009,
+    "deadline": 1795544709,
+    "class": "escalated",
+    "entry": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "claude-opus-5-5"
+      ],
+      "fallback": null,
+      "fallbacks": [],
+      "source": "default"
+    },
+    "retried": false,
+    "argv": [
+      "052",
+      "--covers",
+      "047",
+      "--covers",
+      "049",
+      "--covers",
+      "051"
+    ],
+    "delivered": false
   }
 }
