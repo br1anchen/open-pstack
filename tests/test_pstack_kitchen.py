@@ -17994,12 +17994,61 @@ class AmpKitchenTests(KitchenScriptTests):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.assertIs(self.state()['sidekick']['rotation_required'], True)
         self.run_sh('rotate', str(self.store), code=4)
-        self.assertIs(self.state()['sidekick']['rotation_required'], False)
+        self.assertIs(self.state()['sidekick']['rotation_required'], True)
         (self.store / 'reports/000-ready.md').write_text('status: done\n')
         b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
         out = self.run_sh('dispatch', str(self.store), str(b), code=None)
         self.assertNotIn('needs a fresh session', out)
         self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
+
+    def restart_after_a_done_unit(self, how):
+        """A done unit, then the sidekick restarted: `rotate` of the idle sidekick, or `close` and a `spawn` of a new one."""
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        if how == 'rotation':
+            self.run_sh('rotate', str(self.store), code=4)
+        else:
+            self.run_sh('close', str(self.store), '--force', code=None)
+            self.run_sh('spawn', str(self.store), code=4)
+
+    def sent_briefs(self):
+        return sum(len(self.briefs_in(amp_thread(n))) for n in (2, 3))
+
+    def test_the_rotation_flag_goes_with_the_new_generations_ready_and_a_bootstrap_without_one_can_be_rotated_again(
+        self,
+    ):
+        for how in ('rotation', 'spawn after close'):
+            for ready in (True, False):
+                with self.subTest(how=how, ready=ready):
+                    self.setUp()
+                    self.restart_after_a_done_unit(how)
+                    b = self.brief(
+                        '002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1']
+                    )
+                    if ready:
+                        (self.store / 'reports/000-ready.md').write_text(
+                            'status: done\n'
+                        )
+                        out = self.run_sh(
+                            'dispatch', str(self.store), str(b), code=None
+                        )
+                        self.assertNotIn('needs a fresh session', out)
+                        self.assertEqual(self.sent_briefs(), 1)
+                        self.assertIsNot(
+                            self.state()['sidekick'].get('rotation_required'), True
+                        )
+                        continue
+                    self.assertIs(self.state()['sidekick']['rotation_required'], True)
+                    out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+                    self.assertIn(
+                        'needs a fresh session or a successful bootstrap', out
+                    )
+                    self.assertIn(f'run pair.sh rotate {self.store}', out)
+                    self.assertEqual(self.sent_briefs(), 0)
+                    out = self.run_sh('rotate', str(self.store), code=4)
+                    self.assertIn(
+                        'rotate: the new sidekick never sent READY; rotating again', out
+                    )
+                    self.assertEqual(self.state()['sidekick']['generation'], 3)
 
     def test_a_dispatch_after_a_failover_that_followed_a_done_unit_is_sent_once_ready(
         self,
@@ -18012,7 +18061,7 @@ class AmpKitchenTests(KitchenScriptTests):
         (self.store / 'pair.json').write_text(json.dumps(pair))
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.run_sh('failover', str(self.store), '--reason', 'limit', code=4)
-        self.assertIs(self.state()['sidekick']['rotation_required'], False)
+        self.assertIs(self.state()['sidekick']['rotation_required'], True)
         (self.store / 'reports/000-ready.md').write_text('status: done\n')
         b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
         out = self.run_sh('dispatch', str(self.store), str(b), code=None)
@@ -18029,7 +18078,7 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertNotIn('rotating the sidekick before this brief failed', out)
         self.assertEqual(self.briefs_in(amp_thread(2)), [])
-        self.assertIs(self.state()['sidekick']['rotation_required'], False)
+        self.assertIs(self.state()['sidekick']['rotation_required'], True)
         (self.store / 'reports/000-ready.md').write_text('status: done\n')
         out = self.run_sh('dispatch', str(self.store), str(b), code=None)
         self.assertNotIn('needs a fresh session', out)
