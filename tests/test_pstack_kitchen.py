@@ -15108,6 +15108,73 @@ class AmpKitchenTests(KitchenScriptTests):
         self.dispatch(b)
         self.assertEqual(len(self.briefs_in(sidekick)), 1)
 
+    def snooze_rows(self, *roles):
+        """Records each of (thread, role) snoozed in snooze.tsv, as `snooze --done` does."""
+        with (self.store / 'snooze.tsv').open('a') as f:
+            for thread, role in roles:
+                f.write(f'2026-11-23T00:00:00Z\t{thread}\t{role}\tsnoozed\n')
+
+    def store_snapshot(self):
+        return (
+            self.state(),
+            (self.store / 'events.tsv').read_text(),
+            (self.store / 'queue').read_text()
+            if (self.store / 'queue').exists()
+            else None,
+            (self.fake / 'amp-archived').exists(),
+        )
+
+    def test_stop_to_a_snoozed_sidekick_refuses_before_it_clears_the_queue_or_logs_anything(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.snooze_rows((sidekick, 'sidekick'))
+        (self.store / 'queue').write_text('briefs/009-x.md\n')
+        before = self.store_snapshot()
+        out = self.run_sh('stop', str(self.store), code=5)
+        self.assertIn(
+            f'snoozed: {sidekick} is snoozed; call update_thread(thread={sidekick}, snooze="off"), '
+            f'then kitchen.sh snooze {self.store} --wake {sidekick}, then run this again',
+            out,
+        )
+        self.assertEqual(self.store_snapshot(), before)
+        self.assertNotIn('send-stop', (self.store / 'events.tsv').read_text())
+        self.run_sh('snooze', str(self.store), '--wake', sidekick)
+        self.run_sh('stop', str(self.store), '--timeout', '1', code=None)
+        self.assertIn('\tsend-stop\t', (self.store / 'events.tsv').read_text())
+        self.assertFalse((self.store / 'queue').exists())
+
+    def test_close_refuses_with_every_snoozed_role_named_and_stops_none_until_they_are_woken(
+        self,
+    ):
+        sidekick, consultant = amp_thread(1), amp_thread(2)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.snooze_rows((consultant, 'consultant'))
+        before = self.store_snapshot()
+        out = self.run_sh('close', str(self.store), '--force', code=5)
+        self.assertIn(
+            f'snoozed: {consultant} is snoozed; call update_thread(thread={consultant}, snooze="off")',
+            out,
+        )
+        self.assertNotIn(sidekick, out.split('snoozed:', 1)[1].split('\n', 1)[0])
+        self.assertEqual(self.store_snapshot(), before)
+        self.assertNotIn('closed ', out)
+        self.snooze_rows((sidekick, 'sidekick'))
+        out = self.run_sh('close', str(self.store), '--force', code=5)
+        self.assertIn(f'snoozed: {consultant}, {sidekick} are snoozed; ', out)
+        for thread in (sidekick, consultant):
+            self.assertIn(f'call update_thread(thread={thread}, snooze="off")', out)
+        self.assertIn(f'--wake {consultant} {sidekick}, then run this again', out)
+        self.assertEqual(self.store_snapshot(), before)
+        for thread in (sidekick, consultant):
+            self.run_sh('snooze', str(self.store), '--wake', thread)
+        out = self.run_sh('close', str(self.store), '--force', code=None)
+        self.assertNotIn('snoozed:', out)
+        self.assertIn('closed ', out)
+
     def test_status_names_the_role_threads_due_for_snoozing_and_a_role_in_error_for_the_human(
         self,
     ):

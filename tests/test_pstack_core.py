@@ -651,15 +651,21 @@ class CoreTests(unittest.TestCase):
             )
         )
 
-    def test_kitchen_runs_the_trios_stop_from_a_table_of_its_own_and_has_no_spawn(self):
+    def test_kitchen_runs_the_trios_stop_after_its_own_snooze_check_from_a_table_of_its_own_and_has_no_spawn(
+        self,
+    ):
         trio = load_skill_variant(root / 'skills', 'pstack-trio')
         kitchen = load_skill_variant(root / 'skills', 'pstack-kitchen')
         self.assertIsNot(kitchen.commands, trio.commands)
-        for table in (trio.commands, kitchen.commands):
-            self.assertEqual(
-                (table['stop'].__name__, table['stop'].__code__.co_filename),
-                ('stop', str(root / 'skills/pstack-trio/scripts/variant.py')),
-            )
+        self.assertEqual(
+            (
+                trio.commands['stop'].__name__,
+                trio.commands['stop'].__code__.co_filename,
+            ),
+            ('stop', str(root / 'skills/pstack-trio/scripts/variant.py')),
+        )
+        # the kitchen's stop first refuses a snoozed role, then runs the trio's
+        self.assertEqual(kitchen.commands['stop'].command, ('master', 'stop'))
         # the trio's spawn is its own command, in its variant; the kitchen's is kitchen_core.setup's (roster kind and args, then the core's spawn)
         self.assertEqual(kitchen.commands['spawn'].__name__, 'spawn')
         self.assertEqual(kitchen.commands['spawn'].command, ('setup', 'spawn'))
