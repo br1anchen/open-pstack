@@ -57,6 +57,19 @@ def rotate_gate(store):
     return ROTATE_DUE_EXIT if line and not warn_only else 0
 
 
+def warn_unplanned_escalation(brief):
+    """Warn when an escalated brief with no plan will be delivered, since its playbook needs none."""
+    playbook = header_field(brief, 'playbook')
+    if (
+        risk_of(brief) == 'escalated'
+        and playbook not in PLAN_PLAYBOOKS
+        and header_field(brief, 'plan') in ('', 'none')
+    ):
+        sys.stdout.write(
+            f'warn: escalated {playbook} brief has plan: none; an escalated unit normally goes through a plan round (kitchen.sh new-plan, discuss)\n'
+        )
+
+
 def dispatch(ctx, args):
     default_signals()
     if len(args) < 2:
@@ -82,15 +95,7 @@ def dispatch(ctx, args):
     else:
         require_pair(ctx, store)
         classify_brief(store, brief)
-        playbook = header_field(brief, 'playbook')
-        if (
-            risk_of(brief) == 'escalated'
-            and playbook not in PLAN_PLAYBOOKS
-            and header_field(brief, 'plan') in ('', 'none')
-        ):
-            sys.stdout.write(
-                f'warn: escalated {playbook} brief has plan: none; an escalated unit normally goes through a plan round (kitchen.sh new-plan, discuss)\n'
-            )
+        warn_unplanned_escalation(brief)
         delivered = deliver(store, brief)
         if delivered:
             parts, tokens, pending = delivered
