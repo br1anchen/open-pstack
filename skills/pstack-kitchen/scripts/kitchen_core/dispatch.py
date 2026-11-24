@@ -15,6 +15,7 @@ from pstack_core.commands.rotate import queue as core_queue
 from pstack_core.commands.rotate import rotate_if_due
 from pstack_core.consult import discuss_with_consultant
 from pstack_core.errors import Die, MissingStore, translate
+from pstack_core.gates import PLAN_PLAYBOOKS
 from pstack_core.numbers import whole_number
 from pstack_core.panes import agent_status
 from pstack_core.store import field, get, header_field, pair_file, risk_of
@@ -81,12 +82,14 @@ def dispatch(ctx, args):
     else:
         require_pair(ctx, store)
         classify_brief(store, brief)
-        if risk_of(brief) == 'escalated' and header_field(brief, 'plan') in (
-            '',
-            'none',
+        playbook = header_field(brief, 'playbook')
+        if (
+            risk_of(brief) == 'escalated'
+            and playbook not in PLAN_PLAYBOOKS
+            and header_field(brief, 'plan') in ('', 'none')
         ):
             sys.stdout.write(
-                'warn: escalated brief has plan: none; an escalated unit normally goes through a plan round (kitchen.sh new-plan, discuss)\n'
+                f'warn: escalated {playbook} brief has plan: none; an escalated unit normally goes through a plan round (kitchen.sh new-plan, discuss)\n'
             )
         delivered = deliver(store, brief)
         if delivered:

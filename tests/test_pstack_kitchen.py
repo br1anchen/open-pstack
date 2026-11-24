@@ -4928,16 +4928,25 @@ esac
         self.assertIn('warn: Scope covers src/util.py', out)
 
     def test_dispatch_prints_a_warning_for_an_escalated_brief_with_no_plan(self):
-        warn = 'warn: escalated brief has plan: none'
-        routine = self.run_sh(
-            'classify', str(self.store), str(self.brief('001', 'r', ['src/util.py']))
-        )
-        self.assertNotIn(warn, routine)
-        out = self.dispatch(self.brief('002', 'e', ['contracts/**']), code=None)
-        self.assertIn(warn, out)
-        self.assertIn('kitchen.sh new-plan, discuss', out)
-        quiet = self.dispatch(self.brief('003', 'r2', ['src/util.py']))
-        self.assertNotIn(warn, quiet)
+        warn = 'warn: escalated docs brief has plan: none'
+        cases = [
+            ('001', 'delivered', 'docs', ['contracts/**'], 4, True, False),
+            ('002', 'refused', 'feature', ['contracts/**'], 6, False, True),
+            ('003', 'routine', 'docs', ['src/util.py'], 4, False, False),
+        ]
+        for seq, slug, playbook, scope, code, warns, refused in cases:
+            with self.subTest(slug):
+                out = self.dispatch(
+                    self.brief(seq, slug, scope, playbook=playbook), code=code
+                )
+                self.assertEqual(warn in out, warns)
+                self.assertEqual('kitchen.sh new-plan, discuss' in out, warns)
+                self.assertNotIn('warn: escalated feature', out)
+                self.assertEqual('needs an agreed plan' in out, refused)
+                self.assertEqual(
+                    (self.store / 'pair.json').read_text().count(f'{seq}-{slug}') > 0,
+                    not refused,
+                )
 
     ACCEPTANCE_071 = [
         '- `git grep -n -E "PAIR_WAIT_|PAIR_QUIET_WAIT|quiet_flagged|has_checkin|SWALLOWED|FLAGGED|unowned:" -- skills`',
