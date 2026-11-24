@@ -492,8 +492,9 @@ def write_file(path, data):
 
 def merge_store(store, files, listed, base_files, reply=None):
     """Merges the sender's files into store; (lines to print). A reply (role_reply) changes only the paths its sender's role owns (owned_by): pair.json takes only the
-    sidekick's completion, any other file stays as this side has it (a file this side lacks is added, except a master-owned one), nothing is
-    deleted by omission, and a shared log the reply lacks stays as it is."""
+    sidekick's completion, any other file stays as this side has it (a file this side lacks is added, except a master-owned one), a file of the
+    sender's own role that the reply lacks is deleted only when this side still has it as the base had it (one this side wrote or changed since
+    stays), and a shared log the reply lacks stays as it is."""
     local, _ = store_files(store)
     changed, removed, conflicts, refused, completed = 0, 0, [], [], False
     for rel in sorted(set(local) | set(files) | set(base_files)):
@@ -518,8 +519,14 @@ def merge_store(store, files, listed, base_files, reply=None):
             keep, conflict = local.get(rel, files.get(rel)), False
             if rel in local and rel in files and files[rel] != keep:
                 refused.append(rel)
-        elif reply is not None and rel not in files and rel in local:
-            # The reply lacks a file this side has: it was packed before the master wrote it, and a reply deletes nothing by omission.
+        elif (
+            reply is not None
+            and rel not in files
+            and rel in local
+            and local[rel] != base_files.get(rel, MISSING)
+        ):
+            # The reply lacks a file of its sender's role that this side wrote or changed since the base: it was packed before the master did, so
+            # the file stays. A file this side still has as the base had it is one the role deleted, and the deletion goes through merge_file.
             keep, conflict = local[rel], False
         else:
             keep, conflict = merge_file(
