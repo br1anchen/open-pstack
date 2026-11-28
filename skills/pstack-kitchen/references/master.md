@@ -300,14 +300,22 @@ place of the history:
   the gate clears when the next master runs `take-master`.
   `KITCHEN_MASTER_CONTEXT_GATE=warn` turns the refusal into the printed line,
   for a master that must finish one more step.
-- Besides that gate, from the `KITCHEN_MASTER_ROTATE_UNITS`-th (5) clean verdict on (a gates-mode unit and a landing verdict count too),
+- Besides that gate, from the `KITCHEN_MASTER_ROTATE_UNITS`-th (3) clean verdict on (a gates-mode unit and a landing verdict count too),
   every clean verdict's `verify` prints `master: N units verified since your last handoff`. At
   that boundary, with no dispatch you must answer this turn. A clean landing
   verdict is a boundary on its own, whatever the unit count: `verify --landing`
   says to rotate when a brief is queued or a unit is still out, and to
-  rotate only if more work follows when nothing is; every `dispatch` and
-  `discuss` repeats the reminder until `rotate-master` runs. All of it is
-  advice; nothing refuses:
+  rotate only if more work follows when nothing is. Where the backend
+  reads your context, this is advice, and every `dispatch` and `discuss`
+  repeats the landing reminder until `rotate-master` runs. Where it cannot
+  (Herdr, Rex, subagents, or an Amp thread whose context read fails), the count stands in for your context: after a
+  clean landing verdict, or from the `KITCHEN_MASTER_ROTATE_UNITS`-th
+  verified unit, `dispatch`, `discuss` and `queue` refuse with exit 9 as
+  above. A unit that cannot wait for the handoff, such as the fix of a
+  review finding in a chain of dependent units, goes out with
+  `--defer-rotation "<why>"` on that one command, which logs a
+  `rotate-deferred` event with the reason; a full or compacted thread is
+  never deferred. To rotate:
   `kitchen.sh new-handoff <store>` writes `session-handoff.md` from
   [the template](handoff-template.md) with every unit's state filled in.
   Fill Goal, Decisions and Next, correct Units, then

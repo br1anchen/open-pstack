@@ -55,6 +55,7 @@ from pstack_core.store import (
     peek,
     read,
     read_flag,
+    read_int,
     read_text,
     text_at,
     update,
@@ -72,18 +73,41 @@ def master_context(store):
     return mux.get().context_used(field(store, 'master', 'name'))
 
 
-def master_rotate_reason(store):
+def master_rotate_reason(store, counted=False):
     """Why the master must rotate before it hands out the next unit: its thread has compacted (context_used reports 1.0 for any compaction, and a
-    fresh master thread starts with none) or has used more than KITCHEN_MASTER_CONTEXT_PCT (60) percent of its window. '' when it need not."""
+    fresh master thread starts with none) or has used more than KITCHEN_MASTER_CONTEXT_PCT (60) percent of its window. Where the backend cannot
+    say (Herdr, Rex, subagents, or an Amp thread whose context read fails) and `counted` is set, the work verified since the last handoff stands in for the context (handoff_reason). ''
+    when it need not."""
     used = master_context(store)
     if used is None:
-        return ''
+        return handoff_reason(store) if counted else ''
     if used >= 1:
         return 'compacted'
     percent = round(used * 100)
     if percent > env_int('KITCHEN_MASTER_CONTEXT_PCT', 60):
         return f'context:{percent}%'
     return ''
+
+
+def rotate_units():
+    """KITCHEN_MASTER_ROTATE_UNITS (3, at least 1): how many verified units since its last handoff make the master due."""
+    return max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 3), 1)
+
+
+def handoff_reason(store):
+    """The counted reason to rotate: a clean landing verdict since the last handoff ('landed'), or KITCHEN_MASTER_ROTATE_UNITS (3) or more
+    verified units since it ('units:N'), the two states verify tells the master about (verify_state.handoff_due). '' when neither."""
+    if read_flag(store, 'master.landed_since_handoff') is True:
+        return 'landed'
+    units = read_int(store, 'master.units_since_handoff') or 0
+    if units >= rotate_units():
+        return f'units:{units}'
+    return ''
+
+
+def deferrable(reason):
+    """Whether --defer-rotation may let this reason through: a counted reason may wait for a boundary, a full or compacted thread may not."""
+    return reason == 'landed' or reason.startswith('units:')
 
 
 ROTATE_DUE_EXIT = 9
@@ -112,30 +136,37 @@ def note_rotate_due(store, reason):
         event(store, 'master', 'rotate-due', '-', reason)
 
 
-def rotate_notice(store, record=False, audience='master'):
-    """The line about the master's rotation, or '' when it need not rotate; with record, the due state is logged too (note_rotate_due). audience is
-    who reads it: the master, whose thread runs the command, or a role, whose thread runs a command that only reports it."""
+def rotate_notice(store, audience='master'):
+    """The line about the master's rotation, or '' when it need not rotate. audience is who reads it: the master, whose thread runs the command, or
+    a role, whose thread runs a command that only reports it. The counted reasons are not said here: verify words them itself
+    (verify_state.handoff_due) and the gate reads them (dispatch.rotate_gate)."""
     reason = master_rotate_reason(store)
-    if not reason:
-        return ''
-    if record:
-        note_rotate_due(store, reason)
-    return rotate_line(reason, store, audience)
+    return rotate_line(reason, store, audience) if reason else ''
 
 
 def rotate_line(reason, store, audience='master'):
     """The line the kitchen says when the master is due: what happened to its thread and, for the master, the rotation commands; a role is told only
     that the note is for the master."""
-    what = (
-        'has compacted'
-        if reason == 'compacted'
-        else f'has used {reason.removeprefix("context:")} of its context'
-    )
+    if reason == 'compacted':
+        what = 'has compacted'
+    elif reason == 'landed':
+        what = 'has verified a landing since its last handoff'
+    elif reason.startswith('units:'):
+        what = (
+            f'has verified {reason.removeprefix("units:")} units since its last handoff'
+        )
+    else:
+        what = f'has used {reason.removeprefix("context:")} of its context'
     if audience != 'master':
         return f"note for the master (the {audience} does nothing): the master's thread {what}; its next dispatch is refused until it rotates\n"
+    defer = (
+        '; a unit that cannot wait for the handoff goes out with --defer-rotation "<why>", which is logged'
+        if deferrable(reason)
+        else ''
+    )
     return (
         f'master: your thread {what}; rotate before dispatching: kitchen.sh new-handoff {store}, fill it, '
-        f'kitchen.sh rotate-master {store} [--model <provider/model>]\n'
+        f'kitchen.sh rotate-master {store} [--model <provider/model>]{defer}\n'
     )
 
 

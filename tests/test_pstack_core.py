@@ -12122,7 +12122,7 @@ class CoreTests(unittest.TestCase):
             'take the verifier role. pstack-kitchen VERIFY /s/verdicts/001-x-v1-packet.md',
             got,
         )
-        # a verified unit and a landing verification both count toward the master's handoff; from the ROTATE_UNITS-th (5 unless the variable is a
+        # a verified unit and a landing verification both count toward the master's handoff; from the ROTATE_UNITS-th (3 unless the variable is a
         # positive number) every clean verdict says so, each one when it is 0, and a count that is not a whole number ends the command
         note = lambda count, store: (
             f'master: {count} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}\n'
@@ -12130,6 +12130,8 @@ class CoreTests(unittest.TestCase):
         counts = {
             'no master': (None, 1),
             'zero': ({'units_since_handoff': 0}, 1),
+            'one': ({'units_since_handoff': 1}, 2),
+            'two': ({'units_since_handoff': 2}, 3),
             'four': ({'units_since_handoff': 4}, 5),
             'nine': ({'units_since_handoff': 9}, 10),
             'ten': ({'units_since_handoff': 10}, 11),
@@ -12137,10 +12139,10 @@ class CoreTests(unittest.TestCase):
             'false': ({'units_since_handoff': False}, 1),
             'an empty master': ({}, 1),
         }
-        every = {'': 5, '2': 2, '0': 1}
+        every = {'': 3, '2': 2, '0': 1}
         n = 0
         for name, (master, count) in counts.items():
-            for setting, step in (*every.items(), (None, 5)):
+            for setting, step in (*every.items(), (None, 3)):
                 env = (
                     {} if setting is None else {'KITCHEN_MASTER_ROTATE_UNITS': setting}
                 )

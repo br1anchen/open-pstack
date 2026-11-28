@@ -7968,7 +7968,7 @@ esac
         out = self.run_sh('verify', str(self.store), '003')
         self.assertIn('master: 3 units verified since your last handoff', out)
         b = self.brief('004', 'u4', ['src/**', 'tests/**'])
-        self.dispatch(b)
+        self.deferred_dispatch(b, 'u4 fixes the review of u3')
         self.write('src/util.py', 'X = 44\n')
         self.write('tests/test_app.py', 'x = 44\n')
         self.done(b, self.commit('u4'))
@@ -8041,24 +8041,132 @@ esac
         )
         self.assertTrue(self.state()['master']['landed_since_handoff'])
 
-    def test_dispatch_after_a_landing_repeats_the_rotation_advice_and_still_sends(self):
-        reminder = 'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff'
+    LANDED_LINE = 'master: your thread has verified a landing since its last handoff; rotate before dispatching: kitchen.sh new-handoff'
+    DEFER_HINT = 'a unit that cannot wait for the handoff goes out with --defer-rotation "<why>", which is logged'
+
+    def deferred_dispatch(self, brief, why, code=4):
+        return self.run_sh(
+            'dispatch',
+            str(self.store),
+            str(brief),
+            '--timeout',
+            '1',
+            '--defer-rotation',
+            why,
+            code=code,
+        )
+
+    def master_events(self, kind):
+        return [
+            line.split('\t')[-1]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if f'\tmaster\t{kind}\t' in line
+        ]
+
+    def test_dispatch_after_a_landing_is_refused_until_the_master_rotates(self):
         b = self.brief('004', 'u4', ['docs/**'])
-        self.assertNotIn(reminder, self.dispatch(b))
+        self.assertNotIn('rotate before dispatching', self.dispatch(b))
         self.landed()
         b = self.brief('005', 'u5', ['docs/**'])
-        out = self.dispatch(b)
-        self.assertEqual(out.count(reminder), 1)
-        self.assertIn('report: missing', out)
-        self.assertEqual(self.state()['dispatch']['brief'], str(b))
+        for _ in range(2):
+            out = self.dispatch(b, code=9)
+            self.assertIn(self.LANDED_LINE, out)
+            self.assertIn(self.DEFER_HINT, out)
+        self.assertNotEqual(self.state()['dispatch']['brief'], str(b))
+        self.assertEqual(self.master_events('rotate-due'), ['landed'])
 
-    def test_discuss_after_a_landing_repeats_the_rotation_advice_and_still_sends(self):
-        reminder = 'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff'
+    def test_discuss_and_queue_after_a_landing_are_refused_and_a_queue_clear_is_not(
+        self,
+    ):
         self.landed()
         plan = self.consultant_plan('routine')
-        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
-        self.assertEqual(out.count(reminder), 1)
+        out = self.run_sh(
+            'discuss', str(self.store), str(plan), '--timeout', '1', code=9
+        )
+        self.assertIn(self.LANDED_LINE, out)
+        b = self.brief('005', 'u5', ['docs/**'])
+        out = self.run_sh('queue', str(self.store), str(b), code=9)
+        self.assertIn(self.LANDED_LINE, out)
+        self.assertFalse((self.store / 'queue').exists())
+        self.assertNotIn(
+            'rotate before', self.run_sh('queue', str(self.store), '--clear')
+        )
+
+    def test_dispatch_is_refused_after_the_configured_number_of_units(self):
+        self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
+        self.three_units()
+        self.run_sh('verify', str(self.store), '001')
+        b = self.brief('004', 'u4', ['docs/**'])
+        self.assertNotIn('rotate before dispatching', self.dispatch(b))
+        out = self.run_sh('verify', str(self.store), '002')
+        self.assertEqual(out.count('since your last handoff'), 1)
+        b = self.brief('005', 'u5', ['docs/**'])
+        out = self.dispatch(b, code=9)
+        self.assertIn(
+            'master: your thread has verified 2 units since its last handoff; rotate before dispatching: kitchen.sh new-handoff',
+            out,
+        )
+        self.assertEqual(self.master_events('rotate-due'), ['units:2'])
+
+    def test_a_deferred_rotation_sends_that_one_unit_and_logs_the_reason(self):
+        self.landed()
+        b = self.brief('005', 'u5', ['docs/**'])
+        out = self.deferred_dispatch(b, 'u5 fixes\tthe review\nof u3')
+        self.assertIn(
+            'master: rotation deferred (landed): u5 fixes the review of u3\n', out
+        )
+        self.assertNotIn('rotate before dispatching', out)
+        self.assertIn('report: missing', out)
+        self.assertEqual(self.state()['dispatch']['brief'], str(b))
+        self.assertEqual(
+            self.master_events('rotate-deferred'),
+            ['landed: u5 fixes the review of u3'],
+        )
+        self.assertEqual(self.master_events('rotate-due'), [])
+        # The deferral was for that dispatch only.
+        self.assertIn(self.LANDED_LINE, self.dispatch(b, code=9))
+
+    def test_discuss_and_queue_take_a_deferral_too(self):
+        self.landed()
+        plan = self.consultant_plan('routine')
+        out = self.run_sh(
+            'discuss',
+            str(self.store),
+            str(plan),
+            '--defer-rotation',
+            'the plan of the fix',
+            '--timeout',
+            '1',
+        )
+        self.assertIn('master: rotation deferred (landed): the plan of the fix', out)
         self.assertIn('report_status: agree', out)
+        b = self.brief('005', 'u5', ['docs/**'])
+        # The gate lets the queue through to the pair's own refusal: the sidekick is idle, so the brief is dispatched, not queued.
+        out = self.run_sh(
+            'queue',
+            str(self.store),
+            str(b),
+            '--defer-rotation',
+            'the fix itself',
+            code=5,
+        )
+        self.assertIn('master: rotation deferred (landed): the fix itself', out)
+        self.assertNotIn('rotate before dispatching', out)
+
+    def test_a_deferral_with_a_blank_reason_defers_nothing(self):
+        self.landed()
+        b = self.brief('005', 'u5', ['docs/**'])
+        out = self.deferred_dispatch(b, ' ', code=9)
+        self.assertIn(self.LANDED_LINE, out)
+        self.assertEqual(self.master_events('rotate-deferred'), [])
+
+    def test_the_warn_gate_says_a_landing_is_due_and_dispatches(self):
+        self.landed()
+        self.env['KITCHEN_MASTER_CONTEXT_GATE'] = 'warn'
+        b = self.brief('005', 'u5', ['docs/**'])
+        out = self.dispatch(b)
+        self.assertIn(self.LANDED_LINE, out)
+        self.assertEqual(self.state()['dispatch']['brief'], str(b))
 
     def test_rotate_master_clears_the_landing_rotation_advice(self):
         self.landed()
@@ -17676,6 +17784,44 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
         self.assertEqual(self.rotate_due_events(), [])
+
+    def test_a_master_whose_context_is_known_is_only_advised_after_a_landing(self):
+        self.set_master_context(10)
+        state = self.state()
+        state['master'].update(landed_since_handoff=True, units_since_handoff=9)
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn(
+            'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff',
+            out,
+        )
+        self.assertNotIn('rotate before dispatching', out)
+        self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
+        self.assertEqual(self.rotate_due_events(), [])
+
+    def test_a_master_whose_context_cannot_be_read_falls_back_to_the_count(self):
+        (self.fake / f'amp-context-{AMP_MASTER}').write_text('not json\n')
+        state = self.state()
+        state['master'].update(units_since_handoff=3)
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=9)
+        self.assertIn(
+            'master: your thread has verified 3 units since its last handoff; rotate before dispatching: ',
+            out,
+        )
+        self.assertEqual(self.briefs_in(amp_thread(1)), [])
+
+    def test_a_compacted_master_is_not_deferred(self):
+        self.set_master_context(5, compacted=1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.deferred_dispatch(b, 'one more unit', code=9)
+        self.assertIn(
+            'master: your thread has compacted; rotate before dispatching: ', out
+        )
+        self.assertNotIn('--defer-rotation', out)
+        self.assertEqual(self.master_events('rotate-deferred'), [])
 
     def test_a_compacted_master_is_refused_at_any_percentage(self):
         self.set_master_context(5, compacted=1)

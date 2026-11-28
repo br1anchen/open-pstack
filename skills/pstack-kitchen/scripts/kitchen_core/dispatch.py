@@ -25,6 +25,7 @@ from pstack_core.numbers import whole_number
 from pstack_core.panes import agent_status
 from pstack_core.store import (
     count,
+    event,
     field,
     get,
     header_field,
@@ -40,7 +41,13 @@ from pstack_core.wait import default_signals
 from . import kpy
 from .classify import brief_escalations, brief_kitchen, classify_brief
 from .landing import is_landing, land_check_problems
-from .master import ROTATE_DUE_EXIT, rotate_notice
+from .master import (
+    ROTATE_DUE_EXIT,
+    deferrable,
+    master_rotate_reason,
+    note_rotate_due,
+    rotate_line,
+)
 from .playbook_delivery import (
     deliver,
     deliver_plan_blocks,
@@ -51,7 +58,8 @@ from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
-DISPATCH_SPEC = Spec(valued=tuple(NUMBER_FLAGS), unknown='collect')
+DEFER_FLAG = '--defer-rotation'
+DISPATCH_SPEC = Spec(valued=(*NUMBER_FLAGS, DEFER_FLAG), unknown='collect')
 
 
 def remind_landed(store):
@@ -63,15 +71,30 @@ def remind_landed(store):
         )
 
 
-def rotate_gate(store):
-    """The master's rotation gate in front of every unit it hands out: a master whose thread is due (master_rotate_reason) is told to rotate and
-    refused with ROTATE_DUE_EXIT, or, with KITCHEN_MASTER_CONTEXT_GATE=warn, told and let through. 0 goes on."""
+def split_defer(args):
+    """(the arguments less --defer-rotation and its value, that value or None)."""
+    opts = read(args, Spec(valued=(DEFER_FLAG,), unknown='collect'))
+    return opts.stripped(DEFER_FLAG), opts.last(DEFER_FLAG)
+
+
+def rotate_gate(store, defer=None):
+    """The master's rotation gate in front of every unit it hands out: a master that is due (master_rotate_reason, the counted reasons included) is
+    told to rotate and refused with ROTATE_DUE_EXIT, or, with KITCHEN_MASTER_CONTEXT_GATE=warn, told and let through. A counted reason lets one
+    command through with `--defer-rotation "<why>"`, which logs a rotate-deferred event (a blank why defers nothing); a full or compacted thread is never deferred. 0 goes on."""
     if not has_pair(store):
         return 0
-    line = rotate_notice(store, record=True)
-    sys.stdout.write(line)
+    reason = master_rotate_reason(store, counted=True)
+    if not reason:
+        return 0
+    why = ' '.join((defer or '').split())
+    if why and deferrable(reason):
+        event(store, 'master', 'rotate-deferred', '-', f'{reason}: {why}')
+        sys.stdout.write(f'master: rotation deferred ({reason}): {why}\n')
+        return 0
+    note_rotate_due(store, reason)
+    sys.stdout.write(rotate_line(reason, store))
     warn_only = os.environ.get('KITCHEN_MASTER_CONTEXT_GATE') == 'warn'
-    return ROTATE_DUE_EXIT if line and not warn_only else 0
+    return 0 if warn_only else ROTATE_DUE_EXIT
 
 
 def warn_unplanned_escalation(brief):
@@ -138,13 +161,14 @@ def dispatch(ctx, args):
     default_signals()
     if len(args) < 2:
         raise Die(
-            'usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]'
+            'usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN] [--defer-rotation WHY]'
         )
     store, brief = args[0], args[1]
     # every number flag is read before the command changes anything
     opts = read(args[2:], DISPATCH_SPEC)
     for flag, value in opts.occurrences:
-        whole_number(value, flag, NUMBER_FLAGS[flag])
+        if flag in NUMBER_FLAGS:
+            whole_number(value, flag, NUMBER_FLAGS[flag])
     # A brief path may be given relative to the store (briefs/NNN-x.md).
     if not os.path.isfile(brief) and os.path.isfile(f'{store}/{brief}'):
         brief = f'{store}/{brief}'
@@ -152,7 +176,7 @@ def dispatch(ctx, args):
         raise Die(f'brief not found: {brief}')
     if has_pair(store):
         require_sidekick_awake(store, brief)
-    if refused_status := rotate_gate(store):
+    if refused_status := rotate_gate(store, opts.last(DEFER_FLAG)):
         return refused_status
     landing = is_landing(brief)
     if landing:
@@ -179,7 +203,9 @@ def dispatch(ctx, args):
     # --max belongs to the quiet wait, not to the pair's dispatch.
     held = []
     try:
-        request = send.dispatch_request(ctx, [store, brief, *opts.stripped('--max')])
+        request = send.dispatch_request(
+            ctx, [store, brief, *opts.stripped('--max', DEFER_FLAG)]
+        )
         result = send.dispatch_brief(
             ctx,
             request.store,
@@ -201,7 +227,7 @@ def dispatch(ctx, args):
     ):
         if not outcome.flagged:
             sys.stdout.write(block(''.join(held) + ''.join(outcome.checkin.notices)))
-            return quiet_wait(ctx, store, list(args[2:]))
+            return quiet_wait(ctx, store, opts.stripped(DEFER_FLAG))
         log_checkin_wake(ctx, store, outcome)
     sys.stdout.write(
         block(
@@ -218,8 +244,11 @@ def queue(ctx, args):
     # A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
     if len(args) >= 2:
         pair_file(args[0])
-    if len(args) >= 2 and args[1] != '--clear' and (refused := rotate_gate(args[0])):
-        return refused
+    if len(args) >= 2 and args[1] != '--clear':
+        tail, defer = split_defer(args[2:])
+        args[2:] = tail
+        if refused := rotate_gate(args[0], defer):
+            return refused
     if (
         len(args) >= 2
         and args[1] != '--clear'
@@ -246,9 +275,11 @@ def discuss(ctx, args):
     if len(args) < 2:
         raise Die('usage: kitchen.sh discuss <store> <plan-path> [--timeout MS]')
     store, plan = args[0], args[1]
+    tail, defer = split_defer(args[2:])
+    args = [store, plan, *tail]
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
-    if refused := rotate_gate(store):
+    if refused := rotate_gate(store, defer):
         return refused
     if risk_of(plan) not in ('routine', 'escalated'):
         raise Die(
